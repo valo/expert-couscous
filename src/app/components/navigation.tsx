@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ConnectBtn } from "./connectButton";
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 const NAV_LINKS = [
   { href: "/", label: "Dashboard" },
@@ -37,7 +37,7 @@ export function Navigation() {
             );
           })}
         </nav>
-        <ConnectBtn />
+        <ConnectButton />
       </div>
     </header>
   );
