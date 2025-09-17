@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import Providers from "./providers";
 import { Navigation } from "./components/navigation";
+import { ConfigValidationBanner } from "./components/config-validation-banner";
 
 import "@rainbow-me/rainbowkit/styles.css";
 
@@ -21,10 +22,12 @@ const geistMono = Geist_Mono({
 
 const siteTitle = "Dibor Leverage Engine";
 const siteDescription = "Secure stablecoin infrastructure and seamless swaps built for the next generation of on-chain finance.";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
 export const metadata: Metadata = {
   title: siteTitle,
   description: siteDescription,
+  metadataBase: new URL(siteUrl),
   manifest: "/site.webmanifest",
   openGraph: {
     title: siteTitle,
@@ -81,6 +84,7 @@ export default async function RootLayout({
         <Providers cookie={cookie}>
           <div className="flex min-h-screen flex-col bg-[var(--color-background)] text-[var(--color-foreground)]">
             <Navigation />
+            <ConfigValidationBanner />
             <div className="flex-1">{children}</div>
           </div>
         </Providers>

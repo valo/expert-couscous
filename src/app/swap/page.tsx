@@ -1,12 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  erc20Abi,
-  formatUnits,
-  isAddress,
-  parseUnits,
-} from "viem";
+import { erc20Abi, formatUnits, parseUnits } from "viem";
 import {
   useAccount,
   useBalance,
@@ -20,12 +15,6 @@ import {
   TOKEN_METADATA,
   PSM_ABI,
 } from "@/lib/contracts";
-
-const REQUIRED_ENV = [
-  { key: "NEXT_PUBLIC_PSM_ADDRESS", value: CONTRACT_ADDRESSES.psm },
-  { key: "NEXT_PUBLIC_USDC_ADDRESS", value: CONTRACT_ADDRESSES.usdc },
-  { key: "NEXT_PUBLIC_DBUSD_ADDRESS", value: CONTRACT_ADDRESSES.dbusd },
-] as const;
 
 const DIRECTIONS = {
   USDC_TO_DBUSD: {
@@ -53,19 +42,6 @@ export default function SwapPage() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const { address, isConnected } = useAccount();
-
-  const validation = useMemo(() => {
-    const missing = REQUIRED_ENV.filter(({ value }) => !value);
-    const invalid = REQUIRED_ENV.filter(
-      ({ value }) => value && !isAddress(value)
-    );
-    return {
-      missing: missing.map(({ key }) => key),
-      invalid: invalid.map(({ key }) => key),
-    };
-  }, []);
-
-  const hasConfigError = validation.missing.length > 0 || validation.invalid.length > 0;
 
   const psmAddress = CONTRACT_ADDRESSES.psm as `0x${string}` | undefined;
 
@@ -173,19 +149,12 @@ export default function SwapPage() {
   const handleSwap = async () => {
     resetStatus();
 
-    if (hasConfigError) {
-      setStatusMessage(
-        "Contract addresses are missing or invalid. Update your environment before swapping."
-      );
-      return;
-    }
-
     if (!isConnected || !address) {
       setStatusMessage("Connect your wallet first.");
       return;
     }
 
-    if (!psmAddress || !fromTokenAddress) {
+    if (!psmAddress || !fromTokenAddress || !toTokenAddress) {
       setStatusMessage("Swap configuration is incomplete.");
       return;
     }
@@ -277,24 +246,6 @@ export default function SwapPage() {
           </button>
         </header>
 
-        {hasConfigError && (
-          <div className="mb-4 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-600/70 dark:bg-amber-500/10 dark:text-amber-200">
-            <p className="font-medium">Missing contract configuration.</p>
-            {validation.missing.length > 0 && (
-              <p>
-                Set environment variables {validation.missing.join(", ")} and
-                restart the dev server.
-              </p>
-            )}
-            {validation.invalid.length > 0 && (
-              <p>
-                Check that {validation.invalid.join(", ")} contain valid 0x
-                addresses.
-              </p>
-            )}
-          </div>
-        )}
-
         <div className="space-y-4">
           <div>
             <div className="mb-1 flex items-center justify-between text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
@@ -362,8 +313,10 @@ export default function SwapPage() {
           type="button"
           onClick={handleSwap}
           disabled={
-            hasConfigError ||
             !isConnected ||
+            !psmAddress ||
+            !fromTokenAddress ||
+            !toTokenAddress ||
             !parsedAmount ||
             isProcessing ||
             isCheckingAllowance
