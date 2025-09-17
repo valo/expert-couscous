@@ -1,8 +1,8 @@
 'use client';
 
-import { http, createStorage, cookieStorage } from 'wagmi';
+import { createStorage, cookieStorage } from 'wagmi';
 import { sepolia } from 'wagmi/chains';
-import { Chain, getDefaultConfig } from '@rainbow-me/rainbowkit';
+import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 
 const projectId = 'dibor-cdp-ui';
 
