@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import Providers from "./providers";
+import { Navigation } from "./components/navigation";
 
 import "@rainbow-me/rainbowkit/styles.css";
 
@@ -35,7 +36,12 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Providers cookie={cookie}>{children}</Providers>
+        <Providers cookie={cookie}>
+          <div className="flex min-h-screen flex-col bg-[var(--color-background)] text-[var(--color-foreground)]">
+            <Navigation />
+            <div className="flex-1">{children}</div>
+          </div>
+        </Providers>
       </body>
     </html>
   );
