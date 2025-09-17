@@ -239,6 +239,7 @@ export default function SwapPage() {
           </div>
           <button
             className="text-sm font-medium text-blue-600 hover:underline"
+            data-testid="direction-toggle"
             onClick={handleDirectionToggle}
             type="button"
           >
@@ -261,6 +262,7 @@ export default function SwapPage() {
             <div className="flex items-center rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 focus-within:border-blue-500 dark:border-neutral-700 dark:bg-neutral-900">
               <input
                 className="flex-1 bg-transparent text-lg outline-none"
+                data-testid="amount-input"
                 placeholder="0.0"
                 value={amount}
                 onChange={(event) => {
@@ -272,7 +274,10 @@ export default function SwapPage() {
                 autoCorrect="off"
                 spellCheck={false}
               />
-              <span className="ml-3 text-sm font-semibold">
+              <span
+                className="ml-3 text-sm font-semibold"
+                data-testid="from-token-symbol"
+              >
                 {fromToken.symbol}
               </span>
             </div>
@@ -293,12 +298,20 @@ export default function SwapPage() {
               <span>To</span>
             </div>
             <div className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
-              <span className="text-lg font-semibold">
+              <span
+                className="text-lg font-semibold"
+                data-testid="to-amount-display"
+              >
                 {quoteOut && !isQuoting
                   ? formatUnits(quoteOut, toToken.decimals)
                   : "0.0"}
               </span>
-              <span className="text-sm font-semibold">{toToken.symbol}</span>
+              <span
+                className="text-sm font-semibold"
+                data-testid="to-token-symbol"
+              >
+                {toToken.symbol}
+              </span>
             </div>
             {toBalance && (
               <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
@@ -322,12 +335,16 @@ export default function SwapPage() {
             isCheckingAllowance
           }
           className="mt-6 w-full rounded-xl bg-blue-600 py-3 text-center text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:text-neutral-500"
+          data-testid="swap-submit-button"
         >
           {buttonLabel}
         </button>
 
         {statusMessage && (
-          <p className="mt-3 text-sm text-neutral-600 dark:text-neutral-300">
+          <p
+            className="mt-3 text-sm text-neutral-600 dark:text-neutral-300"
+            data-testid="status-message"
+          >
             {statusMessage}
           </p>
         )}

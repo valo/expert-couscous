@@ -4,11 +4,12 @@
 The Next.js 15 app lives in `src/app` with the App Router. Route entries such as `page.tsx` and `layout.tsx` define public views, while `components/` holds shared UI. Global providers for RainbowKit, Wagmi, and React Query sit in `src/app/providers.tsx`. Utilities and chain config live under `src/lib` (`config.ts`, `utils.tsx`), available through the `@/*` path alias in `tsconfig.json`. Static assets belong in `public/`, and Tailwind styling originates in `src/app/globals.css`. The ABIs of the contracts used by the app are in src/lib/abi.
 
 ## Build, Test, and Development Commands
-- `npm install` (or `pnpm install`) — install dependencies.
-- `npm run dev` — launch the Turbopack dev server at `http://localhost:3000`.
-- `npm run build` — produce a production bundle for CI or previews.
-- `npm run start` — serve the bundled app locally.
-- `npm run lint` — execute ESLint with the `next/core-web-vitals` preset; resolve findings before merging.
+Use pnpm for all package management and running scripts:
+- `pnpm install` — install dependencies.
+- `pnpm run dev` — launch the Turbopack dev server at `http://localhost:3000`.
+- `pnpm run build` — produce a production bundle for CI or previews.
+- `pnpm run start` — serve the bundled app locally.
+- `pnpm run lint` — execute ESLint with the `next/core-web-vitals` preset; resolve findings before merging.
 
 ## Coding Style & Naming Conventions
 Prefer TypeScript React components and add "use client" only when required. Use 2-space indentation, keep JSX lean, and favor hooks over classes. Components and hooks follow `PascalCase`, helpers use `camelCase`, constants use `SCREAMING_SNAKE_CASE`. Run `npm run lint -- --fix` for safe formatting and rely on the `@/*` alias instead of long relative paths. Co-locate feature-specific helpers or styles with their component folder.
