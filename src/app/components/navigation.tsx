@@ -1,15 +1,20 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 const NAV_LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/earn", label: "Earn" },
   { href: "/swap", label: "Swap" },
 ] as const;
+
+const ConnectButton = dynamic(
+  () => import("@rainbow-me/rainbowkit").then((mod) => mod.ConnectButton),
+  { ssr: false }
+);
 
 export function Navigation() {
   const pathname = usePathname();

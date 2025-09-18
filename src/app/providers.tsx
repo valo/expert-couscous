@@ -14,7 +14,9 @@ type Props = {
 };
 
 export default function Providers({ children, cookie }: Props) {
-    const initialState = cookieToInitialState(config, cookie);
+    const initialState = typeof window === 'undefined'
+        ? undefined
+        : cookieToInitialState(config, cookie);
 
     return (
         <WagmiProvider config={config} initialState={initialState}>

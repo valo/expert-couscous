@@ -16,8 +16,8 @@ import {
   TOKEN_METADATA,
 } from "@/lib/contracts";
 
-const SECONDS_PER_YEAR = 31_536_000n;
-const APY_SCALE = 1_000_000n;
+const SECONDS_PER_YEAR = BigInt(31536000);
+const APY_SCALE = BigInt(1000000);
 
 type Mode = "deposit" | "withdraw";
 
@@ -134,6 +134,8 @@ export default function EarnPage() {
     },
   });
 
+  const maxWithdrawValue: bigint = (maxWithdraw ?? BigInt(0)) as bigint;
+
   const { data: previewDepositShares } = useReadContract({
     abi: SRM_ABI,
     address: srmAddress,
@@ -154,7 +156,13 @@ export default function EarnPage() {
     },
   });
 
-  const { data: dripRate } = useReadContract({
+  const previewDepositSharesValue =
+    (previewDepositShares ?? null) as bigint | null;
+
+  const previewWithdrawSharesValue =
+    (previewWithdrawShares ?? null) as bigint | null;
+
+  const { data: dripRate, refetch: refetchDripRate } = useReadContract({
     abi: SRM_ABI,
     address: srmAddress,
     functionName: "dripRate",
@@ -163,7 +171,7 @@ export default function EarnPage() {
     },
   });
 
-  const { data: totalAssets } = useReadContract({
+  const { data: totalAssets, refetch: refetchTotalAssets } = useReadContract({
     abi: SRM_ABI,
     address: srmAddress,
     functionName: "totalAssets",
@@ -172,13 +180,21 @@ export default function EarnPage() {
     },
   });
 
+  const dripRateValue: bigint = (dripRate ?? null) as bigint;
+  const totalAssetsValue: bigint = (totalAssets ?? null) as bigint;
+
   const apyPercent = useMemo(() => {
-    if (!dripRate || !totalAssets || totalAssets === 0n) {
+    if (
+      dripRateValue === null ||
+      totalAssetsValue === null ||
+      totalAssetsValue === BigInt(0)
+    ) {
       return null;
     }
 
-    const annualInterest = dripRate * SECONDS_PER_YEAR;
-    const scaledPercent = (annualInterest * 100n * APY_SCALE) / totalAssets;
+    const annualInterest = dripRateValue * SECONDS_PER_YEAR;
+    const scaledPercent =
+      (annualInterest * BigInt(100) * APY_SCALE) / totalAssetsValue;
     const numeric = Number(scaledPercent) / Number(APY_SCALE);
 
     if (!Number.isFinite(numeric)) {
@@ -186,7 +202,7 @@ export default function EarnPage() {
     }
 
     return numeric;
-  }, [dripRate, totalAssets]);
+  }, [dripRateValue, totalAssetsValue]);
 
   const apyDisplay = useMemo(() => {
     if (apyPercent === null) {
@@ -198,19 +214,19 @@ export default function EarnPage() {
 
   const { writeContractAsync } = useWriteContract();
 
-  const availableToWithdraw = maxWithdraw ?? 0n;
   const exceedsDepositBalance =
     mode === "deposit" &&
     Boolean(
       depositParsedAmount &&
-        dbusdBalance &&
-        depositParsedAmount > dbusdBalance.value,
+      dbusdBalance &&
+      depositParsedAmount > dbusdBalance.value,
     );
 
   const exceedsWithdrawLimit =
     mode === "withdraw" &&
     Boolean(
-      withdrawParsedAmount && withdrawParsedAmount > availableToWithdraw,
+      withdrawParsedAmount !== undefined &&
+      withdrawParsedAmount > maxWithdrawValue,
     );
 
   const activeParsedAmount =
@@ -241,12 +257,12 @@ export default function EarnPage() {
       return;
     }
 
-    if (!maxWithdraw) {
+    if (maxWithdrawValue === null) {
       return;
     }
 
     setWithdrawAmount(
-      formatUnits(maxWithdraw, TOKEN_METADATA.DBUSD.decimals),
+      formatUnits(maxWithdrawValue, TOKEN_METADATA.DBUSD.decimals),
     );
   };
 
@@ -345,6 +361,14 @@ export default function EarnPage() {
         refetchPromises.push(refetchMaxWithdraw());
       }
 
+      if (refetchDripRate) {
+        refetchPromises.push(refetchDripRate());
+      }
+
+      if (refetchTotalAssets) {
+        refetchPromises.push(refetchTotalAssets());
+      }
+
       await Promise.allSettled(refetchPromises);
     } catch (error) {
       const message =
@@ -432,11 +456,10 @@ export default function EarnPage() {
                 key={value}
                 type="button"
                 onClick={() => handleModeChange(value)}
-                className={`rounded-xl border px-4 py-2 transition ${
-                  isActive
-                    ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-100"
-                    : "border-neutral-200 text-neutral-600 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white"
-                }`}
+                className={`rounded-xl border px-4 py-2 transition ${isActive
+                  ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-100"
+                  : "border-neutral-200 text-neutral-600 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white"
+                  }`}
               >
                 {value === "deposit" ? "Deposit" : "Withdraw"}
               </button>
@@ -454,7 +477,7 @@ export default function EarnPage() {
                 className="text-blue-600 hover:underline disabled:pointer-events-none disabled:text-neutral-400"
                 disabled={
                   (mode === "deposit" && !dbusdBalance) ||
-                  (mode === "withdraw" && !maxWithdraw)
+                  (mode === "withdraw" && maxWithdrawValue === null)
                 }
               >
                 Max
@@ -487,11 +510,11 @@ export default function EarnPage() {
                 )} {TOKEN_METADATA.DBUSD.symbol}
               </p>
             )}
-            {mode === "withdraw" && maxWithdraw !== undefined && (
+            {mode === "withdraw" && maxWithdrawValue !== null && (
               <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                 Available to withdraw: {" "}
                 {formatTokenAmount(
-                  availableToWithdraw,
+                  maxWithdrawValue,
                   TOKEN_METADATA.DBUSD.decimals,
                 )} {TOKEN_METADATA.DBUSD.symbol}
               </p>
@@ -508,13 +531,13 @@ export default function EarnPage() {
             )}
           </div>
 
-          {mode === "deposit" && previewDepositShares && (
+          {mode === "deposit" && previewDepositSharesValue !== null && (
             <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm dark:border-neutral-700 dark:bg-neutral-900">
               <p className="text-neutral-600 dark:text-neutral-300">
                 Estimated SRM shares:{" "}
                 <span className="font-semibold">
                   {formatTokenAmount(
-                    previewDepositShares,
+                    previewDepositSharesValue,
                     srmShareBalance?.decimals ?? TOKEN_METADATA.DBUSD.decimals,
                   )}
                 </span>
@@ -522,13 +545,13 @@ export default function EarnPage() {
             </div>
           )}
 
-          {mode === "withdraw" && previewWithdrawShares && (
+          {mode === "withdraw" && previewWithdrawSharesValue !== null && (
             <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm dark:border-neutral-700 dark:bg-neutral-900">
               <p className="text-neutral-600 dark:text-neutral-300">
                 Estimated SRM shares burned:{" "}
                 <span className="font-semibold">
                   {formatTokenAmount(
-                    previewWithdrawShares,
+                    previewWithdrawSharesValue,
                     srmShareBalance?.decimals ?? TOKEN_METADATA.DBUSD.decimals,
                   )}
                 </span>
