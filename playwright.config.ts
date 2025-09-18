@@ -1,12 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
-import path from "node:path";
 import process from "node:process";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 const HOST = "127.0.0.1";
 const BASE_URL = `http://${HOST}:${PORT}`;
-const indexedDbSetup = path.join(__dirname, "tests/e2e/setup-indexeddb.js");
-const NODE_OPTIONS = [process.env.NODE_OPTIONS, `--require ${indexedDbSetup}`]
+const NODE_OPTIONS = [process.env.NODE_OPTIONS]
   .filter(Boolean)
   .join(" ");
 

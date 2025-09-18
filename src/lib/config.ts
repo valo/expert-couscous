@@ -1,9 +1,3 @@
-'use client';
-
-if (typeof window === 'undefined' && !('indexedDB' in globalThis)) {
-    await import('fake-indexeddb/auto');
-}
-
 import { createStorage, cookieStorage } from 'wagmi';
 import { sepolia } from 'wagmi/chains';
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
