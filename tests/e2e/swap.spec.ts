@@ -80,7 +80,7 @@ async function mockWalletConnectRpc(page: Page) {
 
     try {
       payload = JSON.parse(postData) as JsonRpcPayload | JsonRpcPayload[];
-    } catch (error) {
+    } catch {
       await route.fulfill({
         status: 200,
         contentType: "application/json",

@@ -1,3 +1,3 @@
 if (typeof globalThis.indexedDB === "undefined") {
-  require("fake-indexeddb/auto");
+  void import("fake-indexeddb/auto");
 }
