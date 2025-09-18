@@ -8,7 +8,11 @@ import { createStorage, cookieStorage } from 'wagmi';
 import { sepolia } from 'wagmi/chains';
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 
-const projectId = 'dibor-cdp-ui';
+export const projectId = process.env.NEXT_PUBLIC_PROJECT_ID
+
+if (!projectId) {
+    throw new Error('Project ID is not defined')
+}
 
 export const config = getDefaultConfig({
     appName: 'Dibor CDP',
