@@ -1,24 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { erc20Abi, formatUnits, parseUnits } from "viem";
-import {
-  useAccount,
-  useBalance,
-  useReadContract,
-  useWriteContract,
-} from "wagmi";
+import { erc20Abi, parseUnits } from "viem";
+import { useAccount, useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { config as wagmiConfig } from "@/lib/config";
 import { CONTRACT_ADDRESSES, SRM_ABI, TOKEN_METADATA } from "@/lib/contracts";
 
-import {
-  APY_SCALE,
-  DBUSD_DECIMALS,
-  DBUSD_SYMBOL,
-  Mode,
-  SECONDS_PER_YEAR,
-} from "../constants";
+import { DBUSD_DECIMALS, DBUSD_SYMBOL, Mode } from "../constants";
+import { useApyMetrics } from "./useApyMetrics";
+import { useEarnBalances } from "./useEarnBalances";
+import { useEarnPreviews } from "./useEarnPreviews";
+import { useTokenApproval } from "./useTokenApproval";
+import { formatDbusdAmount, formatTokenAmount } from "../utils";
 
 type AmountFieldState = {
   label: string;
@@ -55,19 +49,6 @@ export type EarnFormState = {
   shareCards: ShareCard[];
   handlers: EarnFormHandlers;
 };
-
-function formatTokenAmount(value: bigint, decimals: number, precision = 6) {
-  const formatted = formatUnits(value, decimals);
-
-  if (!formatted.includes(".")) {
-    return formatted;
-  }
-
-  const [integer, fraction] = formatted.split(".");
-  const trimmedFraction = fraction.slice(0, precision).replace(/0+$/, "");
-
-  return trimmedFraction ? `${integer}.${trimmedFraction}` : integer;
-}
 
 export function useEarnForm(): EarnFormState {
   const [mode, setMode] = useState<Mode>("deposit");
@@ -108,139 +89,32 @@ export function useEarnForm(): EarnFormState {
     }
   }, [withdrawAmount]);
 
-  const {
-    data: allowance,
-    isFetching: isCheckingAllowance,
-    refetch: refetchAllowance,
-  } = useReadContract({
-    abi: erc20Abi,
-    address: dbusdAddress,
-    functionName: "allowance",
-    args: address && srmAddress ? [address, srmAddress] : undefined,
-    query: {
-      enabled: Boolean(address && dbusdAddress && srmAddress),
-    },
-  });
-
-  const needsApproval = useMemo(() => {
-    if (!depositParsedAmount) {
-      return false;
-    }
-
-    if (!allowance) {
-      return true;
-    }
-
-    return allowance < depositParsedAmount;
-  }, [allowance, depositParsedAmount]);
-
-  const { data: dbusdBalance, refetch: refetchDbusdBalance } = useBalance({
+  const { allowanceQuery, needsApproval } = useTokenApproval(
     address,
-    token: dbusdAddress,
-    query: {
-      enabled: Boolean(address && dbusdAddress),
-    },
-  });
+    dbusdAddress,
+    srmAddress,
+    depositParsedAmount,
+  );
 
-  const { data: srmShareBalance, refetch: refetchSrmShareBalance } = useBalance({
-    address,
-    token: srmAddress,
-    query: {
-      enabled: Boolean(address && srmAddress),
-    },
-  });
+  const { dbusdBalance, srmShareBalance, refetchDbusdBalance, refetchSrmShareBalance, refetchMaxWithdraw, maxWithdraw } =
+    useEarnBalances(address);
+
+  const { previewDepositShares, previewWithdrawShares } = useEarnPreviews(
+    depositParsedAmount,
+    withdrawParsedAmount,
+  );
 
   const {
-    data: maxWithdraw,
-    refetch: refetchMaxWithdraw,
-  } = useReadContract({
-    abi: SRM_ABI,
-    address: srmAddress,
-    functionName: "maxWithdraw",
-    args: address ? [address] : undefined,
-    query: {
-      enabled: Boolean(address && srmAddress),
-    },
-  });
+    apyDisplay,
+    refetchDripRate,
+    refetchTotalAssets,
+  } = useApyMetrics();
 
-  const maxWithdrawValue = typeof maxWithdraw === "bigint" ? maxWithdraw : null;
+  const isCheckingAllowance = allowanceQuery.isFetching;
+  const refetchAllowance = allowanceQuery.refetch;
+
+  const maxWithdrawValue = maxWithdraw;
   const maxWithdrawForComparison = maxWithdrawValue ?? BigInt(0);
-
-  const { data: previewDepositShares } = useReadContract({
-    abi: SRM_ABI,
-    address: srmAddress,
-    functionName: "previewDeposit",
-    args: depositParsedAmount ? [depositParsedAmount] : undefined,
-    query: {
-      enabled: Boolean(srmAddress && depositParsedAmount),
-    },
-  });
-
-  const { data: previewWithdrawShares } = useReadContract({
-    abi: SRM_ABI,
-    address: srmAddress,
-    functionName: "previewWithdraw",
-    args: withdrawParsedAmount ? [withdrawParsedAmount] : undefined,
-    query: {
-      enabled: Boolean(srmAddress && withdrawParsedAmount),
-    },
-  });
-
-  const previewDepositSharesValue =
-    typeof previewDepositShares === "bigint" ? previewDepositShares : null;
-
-  const previewWithdrawSharesValue =
-    typeof previewWithdrawShares === "bigint" ? previewWithdrawShares : null;
-
-  const { data: dripRate, refetch: refetchDripRate } = useReadContract({
-    abi: SRM_ABI,
-    address: srmAddress,
-    functionName: "dripRate",
-    query: {
-      enabled: Boolean(srmAddress),
-    },
-  });
-
-  const { data: totalAssets, refetch: refetchTotalAssets } = useReadContract({
-    abi: SRM_ABI,
-    address: srmAddress,
-    functionName: "totalAssets",
-    query: {
-      enabled: Boolean(srmAddress),
-    },
-  });
-
-  const dripRateValue = typeof dripRate === "bigint" ? dripRate : null;
-  const totalAssetsValue = typeof totalAssets === "bigint" ? totalAssets : null;
-
-  const apyPercent = useMemo(() => {
-    if (
-      dripRateValue === null ||
-      totalAssetsValue === null ||
-      totalAssetsValue === BigInt(0)
-    ) {
-      return null;
-    }
-
-    const annualInterest = dripRateValue * SECONDS_PER_YEAR;
-    const scaledPercent =
-      (annualInterest * BigInt(100) * APY_SCALE) / totalAssetsValue;
-    const numeric = Number(scaledPercent) / Number(APY_SCALE);
-
-    if (!Number.isFinite(numeric)) {
-      return null;
-    }
-
-    return numeric;
-  }, [dripRateValue, totalAssetsValue]);
-
-  const apyDisplay = useMemo(() => {
-    if (apyPercent === null) {
-      return "—";
-    }
-
-    return `${apyPercent.toFixed(2)}%`;
-  }, [apyPercent]);
 
   const { writeContractAsync } = useWriteContract();
 
@@ -286,7 +160,9 @@ export function useEarnForm(): EarnFormState {
         return;
       }
 
-      setDepositAmount(formatUnits(dbusdBalance.value, dbusdBalance.decimals));
+      setDepositAmount(
+        formatTokenAmount(dbusdBalance.value, dbusdBalance.decimals),
+      );
       resetStatus();
       return;
     }
@@ -295,7 +171,7 @@ export function useEarnForm(): EarnFormState {
       return;
     }
 
-    setWithdrawAmount(formatUnits(maxWithdrawValue, DBUSD_DECIMALS));
+    setWithdrawAmount(formatDbusdAmount(maxWithdrawValue));
     resetStatus();
   };
 
@@ -376,33 +252,14 @@ export function useEarnForm(): EarnFormState {
         setWithdrawAmount("");
       }
 
-      const refetchPromises: Array<Promise<unknown>> = [];
-
-      if (refetchAllowance) {
-        refetchPromises.push(refetchAllowance());
-      }
-
-      if (refetchDbusdBalance) {
-        refetchPromises.push(refetchDbusdBalance());
-      }
-
-      if (refetchSrmShareBalance) {
-        refetchPromises.push(refetchSrmShareBalance());
-      }
-
-      if (refetchMaxWithdraw) {
-        refetchPromises.push(refetchMaxWithdraw());
-      }
-
-      if (refetchDripRate) {
-        refetchPromises.push(refetchDripRate());
-      }
-
-      if (refetchTotalAssets) {
-        refetchPromises.push(refetchTotalAssets());
-      }
-
-      await Promise.allSettled(refetchPromises);
+      await Promise.allSettled([
+        refetchAllowance?.(),
+        refetchDbusdBalance?.(),
+        refetchSrmShareBalance?.(),
+        refetchMaxWithdraw?.(),
+        refetchDripRate?.(),
+        refetchTotalAssets?.(),
+      ]);
     } catch (error) {
       const message =
         error instanceof Error
@@ -475,10 +332,7 @@ export function useEarnForm(): EarnFormState {
 
   if (mode === "withdraw" && maxWithdrawValue !== null) {
     amountInfoLines.push(
-      `Available to withdraw: ${formatTokenAmount(
-        maxWithdrawValue,
-        DBUSD_DECIMALS,
-      )} ${DBUSD_SYMBOL}`,
+      `Available to withdraw: ${formatDbusdAmount(maxWithdrawValue)} ${DBUSD_SYMBOL}`,
     );
   }
 
@@ -499,21 +353,21 @@ export function useEarnForm(): EarnFormState {
 
   const shareCards: ShareCard[] = [];
 
-  if (mode === "deposit" && previewDepositSharesValue !== null) {
+  if (mode === "deposit" && previewDepositShares !== null) {
     shareCards.push({
       label: "Estimated SRM shares",
       value: formatTokenAmount(
-        previewDepositSharesValue,
+        previewDepositShares,
         srmShareBalance?.decimals ?? DBUSD_DECIMALS,
       ),
     });
   }
 
-  if (mode === "withdraw" && previewWithdrawSharesValue !== null) {
+  if (mode === "withdraw" && previewWithdrawShares !== null) {
     shareCards.push({
       label: "Estimated SRM shares burned",
       value: formatTokenAmount(
-        previewWithdrawSharesValue,
+        previewWithdrawShares,
         srmShareBalance?.decimals ?? DBUSD_DECIMALS,
       ),
     });
