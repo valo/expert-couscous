@@ -2,12 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { erc20Abi, parseUnits } from "viem";
-import {
-  useAccount,
-  useBalance,
-  useReadContract,
-  useWriteContract,
-} from "wagmi";
+import { useAccount, useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 
 import {
@@ -20,6 +15,8 @@ import {
 import { formatDbusdAmount, formatTokenAmount } from "@/app/earn/utils";
 import { config as wagmiConfig } from "@/lib/config";
 import { CONTRACT_ADDRESSES, TOKEN_METADATA, VAULT_ABI } from "@/lib/contracts";
+
+import { useBorrowContractData } from "./useBorrowContractData";
 
 type AmountFieldState = {
   label: string;
@@ -158,34 +155,18 @@ export function useBorrowForm(): BorrowFormState {
     withdrawParsedAmount,
   ]);
 
-  const {
-    data: wethAllowance,
-    isFetching: isCheckingWethAllowance,
-    refetch: refetchWethAllowance,
-  } = useReadContract({
-    abi: erc20Abi,
-    address: wethAddress,
-    functionName: "allowance",
-    args: address && wethVaultAddress ? [address, wethVaultAddress] : undefined,
-    query: {
-      enabled: Boolean(address && wethAddress && wethVaultAddress),
-    },
+  const borrowData = useBorrowContractData({
+    address,
+    wethAddress,
+    dbusdAddress,
+    wethVaultAddress,
+    dbusdVaultAddress,
   });
 
-  const {
-    data: dbusdAllowance,
-    isFetching: isCheckingDbusdAllowance,
-    refetch: refetchDbusdAllowance,
-  } = useReadContract({
-    abi: erc20Abi,
-    address: dbusdAddress,
-    functionName: "allowance",
-    args:
-      address && dbusdVaultAddress ? [address, dbusdVaultAddress] : undefined,
-    query: {
-      enabled: Boolean(address && dbusdAddress && dbusdVaultAddress),
-    },
-  });
+  const { writeContractAsync } = useWriteContract();
+
+  const wethAllowance = borrowData.wethAllowanceQuery.data;
+  const dbusdAllowance = borrowData.dbusdAllowanceQuery.data;
 
   const needsDepositApproval = useMemo(() => {
     if (!depositParsedAmount) {
@@ -211,108 +192,44 @@ export function useBorrowForm(): BorrowFormState {
     return dbusdAllowance < repayParsedAmount;
   }, [dbusdAllowance, repayParsedAmount]);
 
-  const {
-    data: wethWalletBalance,
-    refetch: refetchWethWalletBalance,
-  } = useBalance({
-    address,
-    token: wethAddress,
-    query: {
-      enabled: Boolean(address && wethAddress),
-    },
-  });
-
-  const {
-    data: dbusdWalletBalance,
-    refetch: refetchDbusdWalletBalance,
-  } = useBalance({
-    address,
-    token: dbusdAddress,
-    query: {
-      enabled: Boolean(address && dbusdAddress),
-    },
-  });
-
-  const {
-    data: shareBalanceRaw,
-    refetch: refetchShareBalance,
-  } = useReadContract({
-    abi: VAULT_ABI,
-    address: wethVaultAddress,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: {
-      enabled: Boolean(address && wethVaultAddress),
-    },
-  });
-
-  const shareBalance =
-    typeof shareBalanceRaw === "bigint" ? shareBalanceRaw : null;
-
-  const {
-    data: maxWithdrawAssetsRaw,
-    refetch: refetchMaxWithdrawAssets,
-  } = useReadContract({
-    abi: VAULT_ABI,
-    address: wethVaultAddress,
-    functionName: "convertToAssets",
-    args: shareBalance !== null ? [shareBalance] : undefined,
-    query: {
-      enabled: Boolean(wethVaultAddress && shareBalance !== null),
-    },
-  });
-
-  const maxWithdrawValue =
-    typeof maxWithdrawAssetsRaw === "bigint" ? maxWithdrawAssetsRaw : null;
-
-  const {
-    data: dbusdDebtRaw,
-    refetch: refetchDbusdDebt,
-  } = useReadContract({
-    abi: VAULT_ABI,
-    address: dbusdVaultAddress,
-    functionName: "debtOf",
-    args: address ? [address] : undefined,
-    query: {
-      enabled: Boolean(address && dbusdVaultAddress),
-    },
-  });
-
-  const borrowedAmount =
-    typeof dbusdDebtRaw === "bigint" ? dbusdDebtRaw : null;
-
-  const { writeContractAsync } = useWriteContract();
-
   const exceedsDepositBalance =
     mode === "depositCollateral" &&
     Boolean(
       depositParsedAmount &&
-        wethWalletBalance &&
-        depositParsedAmount > wethWalletBalance.value,
+        borrowData.wethWalletBalance &&
+        depositParsedAmount > borrowData.wethWalletBalance.value,
     );
 
   const exceedsWithdrawLimit =
     mode === "withdrawCollateral" &&
     Boolean(
       withdrawParsedAmount !== undefined &&
-        maxWithdrawValue !== null &&
-        withdrawParsedAmount > maxWithdrawValue,
+        borrowData.maxWithdrawValue !== null &&
+        withdrawParsedAmount > borrowData.maxWithdrawValue,
+    );
+
+  const exceedsBorrowLimit =
+    mode === "borrowDbusd" &&
+    Boolean(
+      borrowParsedAmount !== undefined &&
+        borrowData.borrowHeadroom !== null &&
+        borrowParsedAmount > borrowData.borrowHeadroom,
     );
 
   const exceedsRepayBorrowed =
     mode === "repayDbusd" &&
     Boolean(
       repayParsedAmount !== undefined &&
-        borrowedAmount !== null &&
-        repayParsedAmount > borrowedAmount,
+        borrowData.borrowedAmount !== null &&
+        repayParsedAmount > borrowData.borrowedAmount,
     );
 
   const insufficientRepayBalance =
     mode === "repayDbusd" &&
     Boolean(
       repayParsedAmount &&
-        dbusdWalletBalance &&
-        repayParsedAmount > dbusdWalletBalance.value,
+        borrowData.dbusdWalletBalance &&
+        repayParsedAmount > borrowData.dbusdWalletBalance.value,
     );
 
   const resetStatus = () => {
@@ -343,40 +260,8 @@ export function useBorrowForm(): BorrowFormState {
         setRepayAmount(value);
         break;
     }
+
     resetStatus();
-  };
-
-  const handleMax = () => {
-    if (mode === "depositCollateral") {
-      if (!wethWalletBalance) {
-        return;
-      }
-
-      setDepositAmount(
-        formatTokenAmount(wethWalletBalance.value, wethWalletBalance.decimals),
-      );
-      resetStatus();
-      return;
-    }
-
-    if (mode === "withdrawCollateral") {
-      if (maxWithdrawValue === null) {
-        return;
-      }
-
-      setWithdrawAmount(formatTokenAmount(maxWithdrawValue, WETH_DECIMALS));
-      resetStatus();
-      return;
-    }
-
-    if (mode === "repayDbusd") {
-      if (borrowedAmount === null) {
-        return;
-      }
-
-      setRepayAmount(formatDbusdAmount(borrowedAmount));
-      resetStatus();
-    }
   };
 
   const handleSubmit = async () => {
@@ -428,6 +313,23 @@ export function useBorrowForm(): BorrowFormState {
       return;
     }
 
+    if (mode === "borrowDbusd") {
+      if (borrowData.borrowHeadroom === null) {
+        setStatusMessage("Unable to determine borrow limit.");
+        return;
+      }
+
+      if (borrowData.borrowHeadroom === BigInt(0)) {
+        setStatusMessage("No borrowing capacity available.");
+        return;
+      }
+
+      if (exceedsBorrowLimit) {
+        setStatusMessage("Amount exceeds your borrow limit.");
+        return;
+      }
+    }
+
     if (mode === "repayDbusd" && exceedsRepayBorrowed) {
       setStatusMessage("Amount exceeds borrowed balance.");
       return;
@@ -452,7 +354,6 @@ export function useBorrowForm(): BorrowFormState {
           });
 
           await waitForTransactionReceipt(wagmiConfig, { hash: approvalHash });
-          await refetchWethAllowance();
         }
 
         setStatusMessage("Depositing…");
@@ -501,7 +402,6 @@ export function useBorrowForm(): BorrowFormState {
           });
 
           await waitForTransactionReceipt(wagmiConfig, { hash: approvalHash });
-          await refetchDbusdAllowance();
         }
 
         setStatusMessage("Repaying…");
@@ -517,15 +417,7 @@ export function useBorrowForm(): BorrowFormState {
         setRepayAmount("");
       }
 
-      await Promise.allSettled([
-        refetchWethAllowance?.(),
-        refetchDbusdAllowance?.(),
-        refetchWethWalletBalance?.(),
-        refetchDbusdWalletBalance?.(),
-        refetchShareBalance?.(),
-        refetchMaxWithdrawAssets?.(),
-        refetchDbusdDebt?.(),
-      ]);
+      await borrowData.refetchAll();
     } catch (error) {
       const message =
         error instanceof Error
@@ -534,6 +426,54 @@ export function useBorrowForm(): BorrowFormState {
       setStatusMessage(message);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleMax = () => {
+    if (mode === "depositCollateral") {
+      if (!borrowData.wethWalletBalance) {
+        return;
+      }
+
+      setDepositAmount(
+        formatTokenAmount(
+          borrowData.wethWalletBalance.value,
+          borrowData.wethWalletBalance.decimals,
+        ),
+      );
+      resetStatus();
+      return;
+    }
+
+    if (mode === "withdrawCollateral") {
+      if (borrowData.maxWithdrawValue === null) {
+        return;
+      }
+
+      setWithdrawAmount(
+        formatTokenAmount(borrowData.maxWithdrawValue, WETH_DECIMALS),
+      );
+      resetStatus();
+      return;
+    }
+
+    if (mode === "borrowDbusd") {
+      if (borrowData.borrowHeadroom === null || borrowData.borrowHeadroom === BigInt(0)) {
+        return;
+      }
+
+      setBorrowAmount(formatDbusdAmount(borrowData.borrowHeadroom));
+      resetStatus();
+      return;
+    }
+
+    if (mode === "repayDbusd") {
+      if (borrowData.borrowedAmount === null) {
+        return;
+      }
+
+      setRepayAmount(formatDbusdAmount(borrowData.borrowedAmount));
+      resetStatus();
     }
   };
 
@@ -603,63 +543,68 @@ export function useBorrowForm(): BorrowFormState {
     (mode === "depositCollateral" &&
       (!wethAddress ||
         !wethVaultAddress ||
-        isCheckingWethAllowance ||
+        borrowData.wethAllowanceQuery.isFetching ||
         exceedsDepositBalance)) ||
     (mode === "withdrawCollateral" &&
       (!wethVaultAddress || exceedsWithdrawLimit)) ||
-    (mode === "borrowDbusd" && !dbusdVaultAddress) ||
+    (mode === "borrowDbusd" &&
+      (!dbusdVaultAddress ||
+        borrowData.borrowHeadroom === null ||
+        borrowData.borrowHeadroom === BigInt(0) ||
+        exceedsBorrowLimit)) ||
     (mode === "repayDbusd" &&
       (!dbusdAddress ||
         !dbusdVaultAddress ||
-        isCheckingDbusdAllowance ||
+        borrowData.dbusdAllowanceQuery.isFetching ||
         insufficientRepayBalance ||
         exceedsRepayBorrowed));
 
-  const depositedWethDisplay =
-    maxWithdrawValue !== null
-      ? `${formatTokenAmount(maxWithdrawValue, WETH_DECIMALS)} ${WETH_SYMBOL}`
+  const collateralValueDisplay =
+    borrowData.collateralValue !== null
+      ? `${formatTokenAmount(
+          borrowData.collateralValue,
+          borrowData.unitOfAccountDecimals,
+          2,
+        )} ${borrowData.unitOfAccountSymbol}`
       : "—";
 
-  const wethWalletDisplay = wethWalletBalance
+  const maxBorrowDisplay =
+    borrowData.maxBorrowValue !== null
+      ? `${formatTokenAmount(
+          borrowData.maxBorrowValue,
+          borrowData.unitOfAccountDecimals,
+          2,
+        )} ${borrowData.unitOfAccountSymbol}`
+      : "—";
+
+  const borrowedDisplay =
+    borrowData.borrowedAmount !== null
+      ? `${formatDbusdAmount(borrowData.borrowedAmount)} ${DBUSD_SYMBOL}`
+      : "—";
+
+  const wethWalletDisplay = borrowData.wethWalletBalance
     ? `${formatTokenAmount(
-        wethWalletBalance.value,
-        wethWalletBalance.decimals,
+        borrowData.wethWalletBalance.value,
+        borrowData.wethWalletBalance.decimals,
       )} ${WETH_SYMBOL}`
     : "—";
 
-  const borrowedDisplay =
-    borrowedAmount !== null
-      ? `${formatDbusdAmount(borrowedAmount)} ${DBUSD_SYMBOL}`
-      : "—";
-
-  const dbusdWalletDisplay = dbusdWalletBalance
+  const dbusdWalletDisplay = borrowData.dbusdWalletBalance
     ? `${formatTokenAmount(
-        dbusdWalletBalance.value,
-        dbusdWalletBalance.decimals,
+        borrowData.dbusdWalletBalance.value,
+        borrowData.dbusdWalletBalance.decimals,
       )} ${DBUSD_SYMBOL}`
     : "—";
 
-  const amountInfoLines: string[] = [];
+  const maxBorrowPercentage =
+    borrowData.maxLtvBasisPoints !== null
+      ? (borrowData.maxLtvBasisPoints / 100).toFixed(2)
+      : "—";
 
-  if (mode === "depositCollateral" || mode === "withdrawCollateral") {
-    amountInfoLines.push(`Wallet balance: ${wethWalletDisplay}`);
-    amountInfoLines.push(`Deposited in vault: ${depositedWethDisplay}`);
-  } else {
-    amountInfoLines.push(`Borrowed from vault: ${borrowedDisplay}`);
-    amountInfoLines.push(`Wallet balance: ${dbusdWalletDisplay}`);
-  }
-
-  let errorMessage: string | null = null;
-
-  if (mode === "depositCollateral" && exceedsDepositBalance) {
-    errorMessage = "Amount exceeds wallet balance.";
-  } else if (mode === "withdrawCollateral" && exceedsWithdrawLimit) {
-    errorMessage = "Amount exceeds your deposited balance.";
-  } else if (mode === "repayDbusd" && insufficientRepayBalance) {
-    errorMessage = "Amount exceeds wallet balance.";
-  } else if (mode === "repayDbusd" && exceedsRepayBorrowed) {
-    errorMessage = "Amount exceeds borrowed balance.";
-  }
+  const borrowInterestDisplay =
+    borrowData.borrowAprPercent !== null
+      ? `${borrowData.borrowAprPercent.toFixed(2)}% APR`
+      : "—";
 
   const amountField: AmountFieldState = {
     label:
@@ -676,22 +621,60 @@ export function useBorrowForm(): BorrowFormState {
         ? WETH_SYMBOL
         : DBUSD_SYMBOL,
     isMaxDisabled:
-      (mode === "depositCollateral" && !wethWalletBalance) ||
-      (mode === "withdrawCollateral" && maxWithdrawValue === null) ||
-      mode === "borrowDbusd" ||
-      (mode === "repayDbusd" && borrowedAmount === null),
-    infoLines: amountInfoLines,
-    errorMessage,
+      (mode === "depositCollateral" && !borrowData.wethWalletBalance) ||
+      (mode === "withdrawCollateral" && borrowData.maxWithdrawValue === null) ||
+      (mode === "borrowDbusd" &&
+        (borrowData.borrowHeadroom === null ||
+          borrowData.borrowHeadroom === BigInt(0))) ||
+      (mode === "repayDbusd" && borrowData.borrowedAmount === null),
+    infoLines: [],
+    errorMessage:
+      mode === "depositCollateral" && exceedsDepositBalance
+        ? "Amount exceeds wallet balance."
+        : mode === "withdrawCollateral" && exceedsWithdrawLimit
+        ? "Amount exceeds your deposited balance."
+        : mode === "borrowDbusd" && exceedsBorrowLimit
+        ? "Amount exceeds your borrow limit."
+        : mode === "repayDbusd" && insufficientRepayBalance
+        ? "Amount exceeds wallet balance."
+        : mode === "repayDbusd" && exceedsRepayBorrowed
+        ? "Amount exceeds borrowed balance."
+        : null,
   };
 
   const summaryItems: SummaryItem[] = [
     {
       label: "Deposited WETH",
-      value: depositedWethDisplay,
+      value:
+        borrowData.maxWithdrawValue !== null
+          ? `${formatTokenAmount(
+              borrowData.maxWithdrawValue,
+              WETH_DECIMALS,
+            )} ${WETH_SYMBOL}`
+          : "—",
+    },
+    {
+      label: `Collateral value (${borrowData.unitOfAccountSymbol})`,
+      value: collateralValueDisplay,
+    },
+    {
+      label: "Borrow interest rate",
+      value: borrowInterestDisplay,
+    },
+    {
+      label: `Max borrow @ ${maxBorrowPercentage}%`,
+      value: maxBorrowDisplay,
     },
     {
       label: "Borrowed dbUSD",
       value: borrowedDisplay,
+    },
+    {
+      label: "Vault liquidity",
+      value:
+        borrowData.availableLiquidity !== null
+          ? `${formatDbusdAmount(borrowData.availableLiquidity)} ${DBUSD_SYMBOL}`
+          : "—",
     },
     {
       label: "WETH wallet",

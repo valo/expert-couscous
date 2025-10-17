@@ -2,6 +2,7 @@ import type { Abi } from "viem";
 import psmArtifact from "./abi/PSM.json";
 import savingsRateModuleArtifact from "./abi/SavingsRateModule.json";
 import vaultArtifact from "./abi/Vault.json";
+import eulerRouterArtifact from "./abi/EulerRouter.json";
 
 export const CONTRACT_ADDRESSES = {
   psm: process.env.NEXT_PUBLIC_PSM_ADDRESS as `0x${string}` | undefined,
@@ -34,3 +35,4 @@ export const TOKEN_METADATA = {
 export const PSM_ABI = psmArtifact as Abi;
 export const SRM_ABI = savingsRateModuleArtifact as Abi;
 export const VAULT_ABI = vaultArtifact as Abi;
+export const EULER_ROUTER_ABI = eulerRouterArtifact as Abi;

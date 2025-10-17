@@ -1,0 +1,385 @@
+"use client";
+
+import { useCallback, useMemo } from "react";
+import { erc20Abi, formatUnits } from "viem";
+import {
+  useBalance,
+  useReadContract,
+} from "wagmi";
+
+import { SECONDS_PER_YEAR } from "@/app/earn/constants";
+import {
+  EULER_ROUTER_ABI,
+  TOKEN_METADATA,
+  VAULT_ABI,
+} from "@/lib/contracts";
+
+import { DBUSD_DECIMALS } from "../constants";
+
+const RAY_DECIMALS = 27;
+
+const pow10Cache = new Map<number, bigint>();
+
+function pow10(exp: number): bigint {
+  if (pow10Cache.has(exp)) {
+    return pow10Cache.get(exp)!;
+  }
+
+  let result = BigInt(1);
+
+  for (let i = 0; i < exp; i += 1) {
+    result *= BigInt(10);
+  }
+
+  pow10Cache.set(exp, result);
+  return result;
+}
+
+type BorrowContractDataArgs = {
+  address?: `0x${string}`;
+  wethAddress?: `0x${string}`;
+  dbusdAddress?: `0x${string}`;
+  wethVaultAddress?: `0x${string}`;
+  dbusdVaultAddress?: `0x${string}`;
+};
+
+export function useBorrowContractData({
+  address,
+  wethAddress,
+  dbusdAddress,
+  wethVaultAddress,
+  dbusdVaultAddress,
+}: BorrowContractDataArgs) {
+  const wethAllowanceQuery = useReadContract({
+    abi: erc20Abi,
+    address: wethAddress,
+    functionName: "allowance",
+    args: address && wethVaultAddress ? [address, wethVaultAddress] : undefined,
+    query: {
+      enabled: Boolean(address && wethAddress && wethVaultAddress),
+    },
+  });
+
+  const dbusdAllowanceQuery = useReadContract({
+    abi: erc20Abi,
+    address: dbusdAddress,
+    functionName: "allowance",
+    args:
+      address && dbusdVaultAddress ? [address, dbusdVaultAddress] : undefined,
+    query: {
+      enabled: Boolean(address && dbusdAddress && dbusdVaultAddress),
+    },
+  });
+
+  const {
+    data: wethWalletBalance,
+    refetch: refetchWethWalletBalance,
+  } = useBalance({
+    address,
+    token: wethAddress,
+    query: {
+      enabled: Boolean(address && wethAddress),
+    },
+  });
+
+  const {
+    data: dbusdWalletBalance,
+    refetch: refetchDbusdWalletBalance,
+  } = useBalance({
+    address,
+    token: dbusdAddress,
+    query: {
+      enabled: Boolean(address && dbusdAddress),
+    },
+  });
+
+  const {
+    data: shareBalanceRaw,
+    refetch: refetchShareBalance,
+  } = useReadContract({
+    abi: VAULT_ABI,
+    address: wethVaultAddress,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: {
+      enabled: Boolean(address && wethVaultAddress),
+    },
+  });
+
+  const shareBalance =
+    typeof shareBalanceRaw === "bigint" ? shareBalanceRaw : null;
+
+  const {
+    data: maxWithdrawAssetsRaw,
+    refetch: refetchMaxWithdrawAssets,
+  } = useReadContract({
+    abi: VAULT_ABI,
+    address: wethVaultAddress,
+    functionName: "convertToAssets",
+    args: shareBalance !== null ? [shareBalance] : undefined,
+    query: {
+      enabled: Boolean(wethVaultAddress && shareBalance !== null),
+    },
+  });
+
+  const maxWithdrawValue =
+    typeof maxWithdrawAssetsRaw === "bigint" ? maxWithdrawAssetsRaw : null;
+
+  const {
+    data: borrowedAmountRaw,
+    refetch: refetchBorrowedAmount,
+  } = useReadContract({
+    abi: VAULT_ABI,
+    address: dbusdVaultAddress,
+    functionName: "debtOf",
+    args: address ? [address] : undefined,
+    query: {
+      enabled: Boolean(address && dbusdVaultAddress),
+    },
+  });
+
+  const borrowedAmount =
+    typeof borrowedAmountRaw === "bigint" ? borrowedAmountRaw : null;
+
+  const {
+    data: availableLiquidityRaw,
+    refetch: refetchAvailableLiquidity,
+  } = useReadContract({
+    abi: VAULT_ABI,
+    address: dbusdVaultAddress,
+    functionName: "cash",
+    query: {
+      enabled: Boolean(dbusdVaultAddress),
+    },
+  });
+
+  const availableLiquidity =
+    typeof availableLiquidityRaw === "bigint" ? availableLiquidityRaw : null;
+
+  const { data: oracleRaw } = useReadContract({
+    abi: VAULT_ABI,
+    address: dbusdVaultAddress,
+    functionName: "oracle",
+    query: {
+      enabled: Boolean(dbusdVaultAddress),
+    },
+  });
+
+  const oracleAddress =
+    typeof oracleRaw === "string" ? (oracleRaw as `0x${string}`) : undefined;
+
+  const { data: unitOfAccountRaw } = useReadContract({
+    abi: VAULT_ABI,
+    address: dbusdVaultAddress,
+    functionName: "unitOfAccount",
+    query: {
+      enabled: Boolean(dbusdVaultAddress),
+    },
+  });
+
+  const unitOfAccountAddress =
+    typeof unitOfAccountRaw === "string"
+      ? (unitOfAccountRaw as `0x${string}`)
+      : undefined;
+
+  const {
+    data: collateralValueRaw,
+    refetch: refetchCollateralValue,
+  } = useReadContract({
+    abi: EULER_ROUTER_ABI,
+    address: oracleAddress,
+    functionName: "getQuote",
+    args:
+      oracleAddress &&
+      unitOfAccountAddress &&
+      wethVaultAddress &&
+      shareBalance !== null
+        ? [shareBalance, wethVaultAddress, unitOfAccountAddress]
+        : undefined,
+    query: {
+      enabled: Boolean(
+        oracleAddress &&
+          unitOfAccountAddress &&
+          wethVaultAddress &&
+          shareBalance !== null,
+      ),
+    },
+  });
+
+  const collateralValue =
+    typeof collateralValueRaw === "bigint" ? collateralValueRaw : null;
+
+  const { data: ltvBorrowRaw, refetch: refetchLtvBorrow } = useReadContract({
+    abi: VAULT_ABI,
+    address: dbusdVaultAddress,
+    functionName: "LTVBorrow",
+    args: wethVaultAddress ? [wethVaultAddress] : undefined,
+    query: {
+      enabled: Boolean(dbusdVaultAddress && wethVaultAddress),
+    },
+  });
+
+  const maxLtvBasisPoints = useMemo(() => {
+    if (typeof ltvBorrowRaw === "number") {
+      return ltvBorrowRaw;
+    }
+
+    if (typeof ltvBorrowRaw === "bigint") {
+      return Number(ltvBorrowRaw);
+    }
+
+    return null;
+  }, [ltvBorrowRaw]);
+
+  const {
+    data: interestRateRaw,
+    refetch: refetchInterestRate,
+  } = useReadContract({
+    abi: VAULT_ABI,
+    address: dbusdVaultAddress,
+    functionName: "interestRate",
+    query: {
+      enabled: Boolean(dbusdVaultAddress),
+    },
+  });
+
+  const interestRatePerSecond =
+    typeof interestRateRaw === "bigint" ? interestRateRaw : null;
+
+  const unitOfAccountMetadata = useMemo(() => {
+    if (!unitOfAccountAddress) {
+      return null;
+    }
+
+    return (
+      Object.values(TOKEN_METADATA).find(
+        (token) =>
+          token.address?.toLowerCase() === unitOfAccountAddress.toLowerCase(),
+      ) ?? null
+    );
+  }, [unitOfAccountAddress]);
+
+  const unitOfAccountDecimals = unitOfAccountMetadata?.decimals ?? 6;
+  const unitOfAccountSymbol = unitOfAccountMetadata?.symbol ?? "USDC";
+
+  const maxBorrowValue = useMemo(() => {
+    if (collateralValue === null || maxLtvBasisPoints === null) {
+      return null;
+    }
+
+    return (collateralValue * BigInt(maxLtvBasisPoints)) / BigInt(10000);
+  }, [collateralValue, maxLtvBasisPoints]);
+
+  const maxBorrowValueInDbusd = useMemo(() => {
+    if (maxBorrowValue === null) {
+      return null;
+    }
+
+    const decimalsDelta = DBUSD_DECIMALS - unitOfAccountDecimals;
+
+    if (decimalsDelta === 0) {
+      return maxBorrowValue;
+    }
+
+    if (decimalsDelta > 0) {
+      return maxBorrowValue * pow10(decimalsDelta);
+    }
+
+    const divisor = pow10(Math.abs(decimalsDelta));
+
+    if (divisor === BigInt(0)) {
+      return null;
+    }
+
+    return maxBorrowValue / divisor;
+  }, [maxBorrowValue, unitOfAccountDecimals]);
+
+  const borrowHeadroom = useMemo(() => {
+    if (
+      maxBorrowValueInDbusd === null ||
+      borrowedAmount === null ||
+      availableLiquidity === null
+    ) {
+      return null;
+    }
+
+    if (maxBorrowValueInDbusd <= borrowedAmount) {
+      return BigInt(0);
+    }
+
+    const headroomByLtv = maxBorrowValueInDbusd - borrowedAmount;
+
+    return headroomByLtv < availableLiquidity
+      ? headroomByLtv
+      : availableLiquidity;
+  }, [availableLiquidity, borrowedAmount, maxBorrowValueInDbusd]);
+
+  const borrowAprPercent = useMemo(() => {
+    if (interestRatePerSecond === null) {
+      return null;
+    }
+
+    const ratePerSecond = Number(formatUnits(interestRatePerSecond, RAY_DECIMALS));
+
+    if (!Number.isFinite(ratePerSecond)) {
+      return null;
+    }
+
+    const apr = ratePerSecond * Number(SECONDS_PER_YEAR) * 100;
+
+    if (!Number.isFinite(apr)) {
+      return null;
+    }
+
+    return apr;
+  }, [interestRatePerSecond]);
+
+  const refetchAll = useCallback(async () => {
+    await Promise.allSettled([
+      wethAllowanceQuery.refetch?.(),
+      dbusdAllowanceQuery.refetch?.(),
+      refetchWethWalletBalance?.(),
+      refetchDbusdWalletBalance?.(),
+      refetchShareBalance?.(),
+      refetchMaxWithdrawAssets?.(),
+      refetchBorrowedAmount?.(),
+      refetchAvailableLiquidity?.(),
+      refetchCollateralValue?.(),
+      refetchLtvBorrow?.(),
+      refetchInterestRate?.(),
+    ]);
+  }, [
+    refetchAvailableLiquidity,
+    dbusdAllowanceQuery,
+    refetchBorrowedAmount,
+    refetchCollateralValue,
+    refetchDbusdWalletBalance,
+    refetchInterestRate,
+    refetchLtvBorrow,
+    refetchMaxWithdrawAssets,
+    refetchShareBalance,
+    refetchWethWalletBalance,
+    wethAllowanceQuery,
+  ]);
+
+  return {
+    wethAllowanceQuery,
+    dbusdAllowanceQuery,
+    wethWalletBalance,
+    dbusdWalletBalance,
+    shareBalance,
+    maxWithdrawValue,
+    borrowedAmount,
+    collateralValue,
+    unitOfAccountDecimals,
+    unitOfAccountSymbol,
+    maxBorrowValue,
+    maxBorrowValueInDbusd,
+    borrowHeadroom,
+    borrowAprPercent,
+    interestRatePerSecond,
+    maxLtvBasisPoints,
+    availableLiquidity,
+    refetchAll,
+  };
+}
