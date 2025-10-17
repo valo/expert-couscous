@@ -7,6 +7,9 @@ type BorrowAmountInputProps = {
   isMaxDisabled: boolean;
   onChange: (value: string) => void;
   onMax: () => void;
+  assetOptions?: Array<{ value: string; label: string }>;
+  selectedAsset?: string;
+  onAssetChange?: (value: string) => void;
 };
 
 export function BorrowAmountInput({
@@ -18,6 +21,9 @@ export function BorrowAmountInput({
   isMaxDisabled,
   onChange,
   onMax,
+  assetOptions,
+  selectedAsset,
+  onAssetChange,
 }: BorrowAmountInputProps) {
   return (
     <div>
@@ -43,7 +49,26 @@ export function BorrowAmountInput({
           autoCorrect="off"
           spellCheck={false}
         />
-        <span className="ml-3 text-sm font-semibold">{tokenSymbol}</span>
+        {assetOptions && onAssetChange ? (
+          <div className="relative ml-3">
+            <select
+              value={selectedAsset}
+              onChange={(event) => onAssetChange(event.target.value)}
+              className="appearance-none rounded-xl bg-neutral-200 px-3 py-1 pr-8 text-sm font-semibold text-neutral-900 outline-none transition hover:bg-neutral-300 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700"
+            >
+              {assetOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-600 dark:text-neutral-300">
+              ▾
+            </span>
+          </div>
+        ) : (
+          <span className="ml-3 text-sm font-semibold">{tokenSymbol}</span>
+        )}
       </div>
       {infoLines.map((line) => (
         <p

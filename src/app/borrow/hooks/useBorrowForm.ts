@@ -14,9 +14,16 @@ import {
 } from "../constants";
 import { formatDbusdAmount, formatTokenAmount } from "@/app/earn/utils";
 import { config as wagmiConfig } from "@/lib/config";
-import { CONTRACT_ADDRESSES, TOKEN_METADATA, VAULT_ABI } from "@/lib/contracts";
+import {
+  CONTRACT_ADDRESSES,
+  TOKEN_METADATA,
+  VAULT_ABI,
+  WETH_ABI,
+} from "@/lib/contracts";
 
 import { useBorrowContractData } from "./useBorrowContractData";
+
+type DepositAsset = "WETH" | "ETH";
 
 type AmountFieldState = {
   label: string;
@@ -25,6 +32,8 @@ type AmountFieldState = {
   isMaxDisabled: boolean;
   infoLines: string[];
   errorMessage: string | null;
+  assetOptions?: Array<{ value: DepositAsset; label: string }>;
+  selectedAsset?: DepositAsset;
 };
 
 export type SummaryItem = {
@@ -37,6 +46,7 @@ export type BorrowFormHandlers = {
   onAmountChange: (value: string) => void;
   onMax: () => void;
   onSubmit: () => Promise<void>;
+  onDepositAssetChange?: (asset: DepositAsset) => void;
 };
 
 export type BorrowFormState = {
@@ -61,6 +71,7 @@ export function useBorrowForm(): BorrowFormState {
   const [repayAmount, setRepayAmount] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [depositAsset, setDepositAsset] = useState<DepositAsset>("WETH");
 
   const { address, isConnected } = useAccount();
 
@@ -163,6 +174,11 @@ export function useBorrowForm(): BorrowFormState {
     dbusdVaultAddress,
   });
 
+  const depositAssetOptions: Array<{ value: DepositAsset; label: string }> = [
+    { value: "WETH", label: "WETH" },
+    { value: "ETH", label: "ETH" },
+  ];
+
   const { writeContractAsync } = useWriteContract();
 
   const wethAllowance = borrowData.wethAllowanceQuery.data;
@@ -192,12 +208,17 @@ export function useBorrowForm(): BorrowFormState {
     return dbusdAllowance < repayParsedAmount;
   }, [dbusdAllowance, repayParsedAmount]);
 
+  const depositBalance =
+    depositAsset === "ETH"
+      ? borrowData.ethWalletBalance
+      : borrowData.wethWalletBalance;
+
   const exceedsDepositBalance =
     mode === "depositCollateral" &&
     Boolean(
       depositParsedAmount &&
-        borrowData.wethWalletBalance &&
-        depositParsedAmount > borrowData.wethWalletBalance.value,
+        depositBalance &&
+        depositParsedAmount > depositBalance.value,
     );
 
   const exceedsWithdrawLimit =
@@ -234,6 +255,15 @@ export function useBorrowForm(): BorrowFormState {
 
   const resetStatus = () => {
     setStatusMessage(null);
+  };
+
+  const handleDepositAssetChange = (asset: DepositAsset) => {
+    if (depositAsset === asset) {
+      return;
+    }
+
+    setDepositAsset(asset);
+    resetStatus();
   };
 
   const handleModeChange = (nextMode: BorrowMode) => {
@@ -344,6 +374,19 @@ export function useBorrowForm(): BorrowFormState {
 
     try {
       if (mode === "depositCollateral" && wethAddress && wethVaultAddress) {
+        if (depositAsset === "ETH") {
+          setStatusMessage("Wrapping ETH…");
+          const wrapHash = await writeContractAsync({
+            abi: WETH_ABI,
+            address: wethAddress,
+            functionName: "deposit",
+            args: [],
+            value: activeParsedAmount,
+          });
+
+          await waitForTransactionReceipt(wagmiConfig, { hash: wrapHash });
+        }
+
         if (needsDepositApproval) {
           setStatusMessage("Submitting approval…");
           const approvalHash = await writeContractAsync({
@@ -431,15 +474,17 @@ export function useBorrowForm(): BorrowFormState {
 
   const handleMax = () => {
     if (mode === "depositCollateral") {
-      if (!borrowData.wethWalletBalance) {
+      const balance =
+        depositAsset === "ETH"
+          ? borrowData.ethWalletBalance
+          : borrowData.wethWalletBalance;
+
+      if (!balance) {
         return;
       }
 
       setDepositAmount(
-        formatTokenAmount(
-          borrowData.wethWalletBalance.value,
-          borrowData.wethWalletBalance.decimals,
-        ),
+        formatTokenAmount(balance.value, balance.decimals),
       );
       resetStatus();
       return;
@@ -544,6 +589,9 @@ export function useBorrowForm(): BorrowFormState {
       (!wethAddress ||
         !wethVaultAddress ||
         borrowData.wethAllowanceQuery.isFetching ||
+        (depositAsset === "ETH"
+          ? !borrowData.ethWalletBalance
+          : !borrowData.wethWalletBalance) ||
         exceedsDepositBalance)) ||
     (mode === "withdrawCollateral" &&
       (!wethVaultAddress || exceedsWithdrawLimit)) ||
@@ -617,11 +665,16 @@ export function useBorrowForm(): BorrowFormState {
         : "Repay amount",
     amount: activeAmount ?? "",
     tokenSymbol:
-      mode === "depositCollateral" || mode === "withdrawCollateral"
+      mode === "depositCollateral"
+        ? depositAsset
+        : mode === "withdrawCollateral"
         ? WETH_SYMBOL
         : DBUSD_SYMBOL,
     isMaxDisabled:
-      (mode === "depositCollateral" && !borrowData.wethWalletBalance) ||
+      (mode === "depositCollateral" &&
+        (depositAsset === "ETH"
+          ? !borrowData.ethWalletBalance
+          : !borrowData.wethWalletBalance)) ||
       (mode === "withdrawCollateral" && borrowData.maxWithdrawValue === null) ||
       (mode === "borrowDbusd" &&
         (borrowData.borrowHeadroom === null ||
@@ -640,6 +693,10 @@ export function useBorrowForm(): BorrowFormState {
         : mode === "repayDbusd" && exceedsRepayBorrowed
         ? "Amount exceeds borrowed balance."
         : null,
+    assetOptions:
+      mode === "depositCollateral" ? depositAssetOptions : undefined,
+    selectedAsset:
+      mode === "depositCollateral" ? depositAsset : undefined,
   };
 
   const summaryItems: SummaryItem[] = [
@@ -721,6 +778,7 @@ export function useBorrowForm(): BorrowFormState {
       onAmountChange: handleAmountChange,
       onMax: handleMax,
       onSubmit: handleSubmit,
+      onDepositAssetChange: handleDepositAssetChange,
     },
   };
 }

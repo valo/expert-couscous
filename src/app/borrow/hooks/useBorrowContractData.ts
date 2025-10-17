@@ -2,10 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { erc20Abi, formatUnits } from "viem";
-import {
-  useBalance,
-  useReadContract,
-} from "wagmi";
+import { useBalance, useReadContract } from "wagmi";
 
 import { SECONDS_PER_YEAR } from "@/app/earn/constants";
 import {
@@ -18,21 +15,8 @@ import { DBUSD_DECIMALS } from "../constants";
 
 const RAY_DECIMALS = 27;
 
-const pow10Cache = new Map<number, bigint>();
-
 function pow10(exp: number): bigint {
-  if (pow10Cache.has(exp)) {
-    return pow10Cache.get(exp)!;
-  }
-
-  let result = BigInt(1);
-
-  for (let i = 0; i < exp; i += 1) {
-    result *= BigInt(10);
-  }
-
-  pow10Cache.set(exp, result);
-  return result;
+  return BigInt(10) ** BigInt(exp);
 }
 
 type BorrowContractDataArgs = {
@@ -79,6 +63,16 @@ export function useBorrowContractData({
     token: wethAddress,
     query: {
       enabled: Boolean(address && wethAddress),
+    },
+  });
+
+  const {
+    data: ethWalletBalance,
+    refetch: refetchEthWalletBalance,
+  } = useBalance({
+    address,
+    query: {
+      enabled: Boolean(address),
     },
   });
 
@@ -339,6 +333,7 @@ export function useBorrowContractData({
       wethAllowanceQuery.refetch?.(),
       dbusdAllowanceQuery.refetch?.(),
       refetchWethWalletBalance?.(),
+      refetchEthWalletBalance?.(),
       refetchDbusdWalletBalance?.(),
       refetchShareBalance?.(),
       refetchMaxWithdrawAssets?.(),
@@ -359,6 +354,7 @@ export function useBorrowContractData({
     refetchMaxWithdrawAssets,
     refetchShareBalance,
     refetchWethWalletBalance,
+    refetchEthWalletBalance,
     wethAllowanceQuery,
   ]);
 
@@ -366,6 +362,7 @@ export function useBorrowContractData({
     wethAllowanceQuery,
     dbusdAllowanceQuery,
     wethWalletBalance,
+    ethWalletBalance,
     dbusdWalletBalance,
     shareBalance,
     maxWithdrawValue,

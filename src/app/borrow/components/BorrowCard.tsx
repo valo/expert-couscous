@@ -30,6 +30,13 @@ export function BorrowCard({
         isMaxDisabled={amountField.isMaxDisabled}
         onChange={handlers.onAmountChange}
         onMax={handlers.onMax}
+        assetOptions={amountField.assetOptions}
+        selectedAsset={amountField.selectedAsset}
+        onAssetChange={
+          handlers.onDepositAssetChange
+            ? (value) => handlers.onDepositAssetChange?.(value as "ETH" | "WETH")
+            : undefined
+        }
       />
 
       {summaryItems.length > 0 && (
