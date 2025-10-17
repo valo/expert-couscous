@@ -19,6 +19,22 @@ function pow10(exp: number): bigint {
   return BigInt(10) ** BigInt(exp);
 }
 
+function convertDecimals(
+  amount: bigint,
+  fromDecimals: number,
+  toDecimals: number,
+): bigint {
+  if (fromDecimals === toDecimals) {
+    return amount;
+  }
+
+  if (fromDecimals > toDecimals) {
+    return amount / pow10(fromDecimals - toDecimals);
+  }
+
+  return amount * pow10(toDecimals - fromDecimals);
+}
+
 type BorrowContractDataArgs = {
   address?: `0x${string}`;
   wethAddress?: `0x${string}`;
@@ -308,6 +324,85 @@ export function useBorrowContractData({
       : availableLiquidity;
   }, [availableLiquidity, borrowedAmount, maxBorrowValueInDbusd]);
 
+  const borrowedAmountInUnit = useMemo(() => {
+    if (borrowedAmount === null) {
+      return null;
+    }
+
+    return convertDecimals(
+      borrowedAmount,
+      DBUSD_DECIMALS,
+      unitOfAccountDecimals,
+    );
+  }, [borrowedAmount, unitOfAccountDecimals]);
+
+  const minCollateralValueRequired = useMemo(() => {
+    if (
+      borrowedAmountInUnit === null ||
+      maxLtvBasisPoints === null ||
+      maxLtvBasisPoints === 0
+    ) {
+      return null;
+    }
+
+    const numerator = borrowedAmountInUnit * BigInt(10000);
+    const denominator = BigInt(maxLtvBasisPoints);
+    return (numerator + denominator - BigInt(1)) / denominator;
+  }, [borrowedAmountInUnit, maxLtvBasisPoints]);
+
+  const availableCollateralValue = useMemo(() => {
+    if (collateralValue === null || minCollateralValueRequired === null) {
+      return null;
+    }
+
+    if (collateralValue <= minCollateralValueRequired) {
+      return BigInt(0);
+    }
+
+    return collateralValue - minCollateralValueRequired;
+  }, [collateralValue, minCollateralValueRequired]);
+
+  const withdrawHeadroomAssets = useMemo(() => {
+    if (
+      availableCollateralValue === null ||
+      collateralValue === null ||
+      collateralValue === BigInt(0) ||
+      maxWithdrawValue === null
+    ) {
+      return null;
+    }
+
+    return (availableCollateralValue * maxWithdrawValue) / collateralValue;
+  }, [availableCollateralValue, collateralValue, maxWithdrawValue]);
+
+  const convertAssetsToUnit = useCallback(
+    (assets: bigint | null | undefined) => {
+      if (
+        assets === null ||
+        assets === undefined ||
+        collateralValue === null ||
+        maxWithdrawValue === null ||
+        maxWithdrawValue === BigInt(0)
+      ) {
+        return null;
+      }
+
+      return (assets * collateralValue) / maxWithdrawValue;
+    },
+    [collateralValue, maxWithdrawValue],
+  );
+
+  const convertDbusdToUnit = useCallback(
+    (amount: bigint | null | undefined) => {
+      if (amount === null || amount === undefined) {
+        return null;
+      }
+
+      return convertDecimals(amount, DBUSD_DECIMALS, unitOfAccountDecimals);
+    },
+    [unitOfAccountDecimals],
+  );
+
   const borrowAprPercent = useMemo(() => {
     if (interestRatePerSecond === null) {
       return null;
@@ -373,10 +468,14 @@ export function useBorrowContractData({
     maxBorrowValue,
     maxBorrowValueInDbusd,
     borrowHeadroom,
+    withdrawHeadroomAssets,
     borrowAprPercent,
     interestRatePerSecond,
     maxLtvBasisPoints,
     availableLiquidity,
+    borrowedAmountInUnit,
+    convertAssetsToUnit,
+    convertDbusdToUnit,
     refetchAll,
   };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { erc20Abi, parseUnits } from "viem";
+import { erc20Abi, formatUnits, parseUnits } from "viem";
 import { useAccount, useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 
@@ -179,6 +179,15 @@ export function useBorrowForm(): BorrowFormState {
     { value: "ETH", label: "ETH" },
   ];
 
+  const {
+    collateralValue,
+    unitOfAccountDecimals,
+    borrowedAmountInUnit,
+    convertAssetsToUnit,
+    convertDbusdToUnit,
+    withdrawHeadroomAssets,
+  } = borrowData;
+
   const { writeContractAsync } = useWriteContract();
 
   const wethAllowance = borrowData.wethAllowanceQuery.data;
@@ -221,13 +230,64 @@ export function useBorrowForm(): BorrowFormState {
         depositParsedAmount > depositBalance.value,
     );
 
+  const withdrawLimitAssets = useMemo(() => {
+    const ltvLimit = withdrawHeadroomAssets;
+    const vaultLimit = borrowData.maxWithdrawValue;
+
+    if (ltvLimit === null && vaultLimit === null) {
+      return null;
+    }
+
+    if (ltvLimit === null) {
+      return vaultLimit;
+    }
+
+    if (vaultLimit === null) {
+      return ltvLimit;
+    }
+
+    return ltvLimit < vaultLimit ? ltvLimit : vaultLimit;
+  }, [borrowData.maxWithdrawValue, withdrawHeadroomAssets]);
+
   const exceedsWithdrawLimit =
     mode === "withdrawCollateral" &&
     Boolean(
       withdrawParsedAmount !== undefined &&
-        borrowData.maxWithdrawValue !== null &&
-        withdrawParsedAmount > borrowData.maxWithdrawValue,
+        withdrawLimitAssets !== null &&
+        withdrawParsedAmount > withdrawLimitAssets,
     );
+
+  const depositValueUnit = useMemo(() => {
+    if (!depositParsedAmount) {
+      return null;
+    }
+
+    return convertAssetsToUnit?.(depositParsedAmount) ?? null;
+  }, [convertAssetsToUnit, depositParsedAmount]);
+
+  const withdrawValueUnit = useMemo(() => {
+    if (!withdrawParsedAmount) {
+      return null;
+    }
+
+    return convertAssetsToUnit?.(withdrawParsedAmount) ?? null;
+  }, [convertAssetsToUnit, withdrawParsedAmount]);
+
+  const borrowValueUnit = useMemo(() => {
+    if (!borrowParsedAmount) {
+      return null;
+    }
+
+    return convertDbusdToUnit?.(borrowParsedAmount) ?? null;
+  }, [borrowParsedAmount, convertDbusdToUnit]);
+
+  const repayValueUnit = useMemo(() => {
+    if (!repayParsedAmount) {
+      return null;
+    }
+
+    return convertDbusdToUnit?.(repayParsedAmount) ?? null;
+  }, [convertDbusdToUnit, repayParsedAmount]);
 
   const exceedsBorrowLimit =
     mode === "borrowDbusd" &&
@@ -491,12 +551,12 @@ export function useBorrowForm(): BorrowFormState {
     }
 
     if (mode === "withdrawCollateral") {
-      if (borrowData.maxWithdrawValue === null) {
+      if (withdrawLimitAssets === null || withdrawLimitAssets === BigInt(0)) {
         return;
       }
 
       setWithdrawAmount(
-        formatTokenAmount(borrowData.maxWithdrawValue, WETH_DECIMALS),
+        formatTokenAmount(withdrawLimitAssets, WETH_DECIMALS),
       );
       resetStatus();
       return;
@@ -594,7 +654,10 @@ export function useBorrowForm(): BorrowFormState {
           : !borrowData.wethWalletBalance) ||
         exceedsDepositBalance)) ||
     (mode === "withdrawCollateral" &&
-      (!wethVaultAddress || exceedsWithdrawLimit)) ||
+      (!wethVaultAddress ||
+        withdrawLimitAssets === null ||
+        withdrawLimitAssets === BigInt(0) ||
+        exceedsWithdrawLimit)) ||
     (mode === "borrowDbusd" &&
       (!dbusdVaultAddress ||
         borrowData.borrowHeadroom === null ||
@@ -608,10 +671,10 @@ export function useBorrowForm(): BorrowFormState {
         exceedsRepayBorrowed));
 
   const collateralValueDisplay =
-    borrowData.collateralValue !== null
+    collateralValue !== null
       ? `${formatTokenAmount(
-          borrowData.collateralValue,
-          borrowData.unitOfAccountDecimals,
+          collateralValue,
+          unitOfAccountDecimals,
           2,
         )} ${borrowData.unitOfAccountSymbol}`
       : "—";
@@ -625,9 +688,108 @@ export function useBorrowForm(): BorrowFormState {
         )} ${borrowData.unitOfAccountSymbol}`
       : "—";
 
+  const currentLtvPercent = useMemo(() => {
+    if (
+      collateralValue === null ||
+      collateralValue === BigInt(0) ||
+      borrowedAmountInUnit === null
+    ) {
+      return null;
+    }
+
+    const debt = Number(formatUnits(borrowedAmountInUnit, unitOfAccountDecimals));
+    const collateral = Number(formatUnits(collateralValue, unitOfAccountDecimals));
+
+    if (!Number.isFinite(debt) || !Number.isFinite(collateral) || collateral === 0) {
+      return null;
+    }
+
+    return (debt / collateral) * 100;
+  }, [borrowedAmountInUnit, collateralValue, unitOfAccountDecimals]);
+
+  const projectedLtvPercent = useMemo(() => {
+    if (
+      collateralValue === null ||
+      collateralValue === BigInt(0) ||
+      borrowedAmountInUnit === null
+    ) {
+      return null;
+    }
+
+    let projectedCollateral = collateralValue;
+    let projectedDebt = borrowedAmountInUnit;
+
+    switch (mode) {
+      case "depositCollateral": {
+        if (depositValueUnit === null) {
+          return null;
+        }
+
+        projectedCollateral += depositValueUnit;
+        break;
+      }
+      case "withdrawCollateral": {
+        if (withdrawValueUnit === null || withdrawValueUnit > projectedCollateral) {
+          return null;
+        }
+
+        projectedCollateral -= withdrawValueUnit;
+        break;
+      }
+      case "borrowDbusd": {
+        if (borrowValueUnit === null) {
+          return null;
+        }
+
+        projectedDebt += borrowValueUnit;
+        break;
+      }
+      case "repayDbusd": {
+        if (repayValueUnit === null) {
+          return null;
+        }
+
+        projectedDebt = projectedDebt > repayValueUnit ? projectedDebt - repayValueUnit : BigInt(0);
+        break;
+      }
+      default:
+        break;
+    }
+
+    if (projectedCollateral === BigInt(0)) {
+      return null;
+    }
+
+    const debt = Number(formatUnits(projectedDebt, unitOfAccountDecimals));
+    const collateral = Number(formatUnits(projectedCollateral, unitOfAccountDecimals));
+
+    if (!Number.isFinite(debt) || !Number.isFinite(collateral) || collateral === 0) {
+      return null;
+    }
+
+    return (debt / collateral) * 100;
+  }, [
+    borrowValueUnit,
+    borrowedAmountInUnit,
+    collateralValue,
+    depositValueUnit,
+    mode,
+    repayValueUnit,
+    unitOfAccountDecimals,
+    withdrawValueUnit,
+  ]);
+
+  const formatPercent = (value: number | null) =>
+    value === null ? "—" : `${value.toFixed(2)}%`;
+
   const borrowedDisplay =
     borrowData.borrowedAmount !== null
       ? `${formatDbusdAmount(borrowData.borrowedAmount)} ${DBUSD_SYMBOL}`
+      : "—";
+
+  const withdrawableWethDisplay =
+    withdrawLimitAssets !== null
+      ? `${formatTokenAmount(withdrawLimitAssets, WETH_DECIMALS)} ${WETH_SYMBOL}`
       : "—";
 
   const wethWalletDisplay = borrowData.wethWalletBalance
@@ -635,6 +797,13 @@ export function useBorrowForm(): BorrowFormState {
         borrowData.wethWalletBalance.value,
         borrowData.wethWalletBalance.decimals,
       )} ${WETH_SYMBOL}`
+    : "—";
+
+  const ethWalletDisplay = borrowData.ethWalletBalance
+    ? `${formatTokenAmount(
+        borrowData.ethWalletBalance.value,
+        borrowData.ethWalletBalance.decimals ?? 18,
+      )} ETH`
     : "—";
 
   const dbusdWalletDisplay = borrowData.dbusdWalletBalance
@@ -676,6 +845,8 @@ export function useBorrowForm(): BorrowFormState {
           ? !borrowData.ethWalletBalance
           : !borrowData.wethWalletBalance)) ||
       (mode === "withdrawCollateral" && borrowData.maxWithdrawValue === null) ||
+      (mode === "withdrawCollateral" &&
+        (withdrawLimitAssets === null || withdrawLimitAssets === BigInt(0))) ||
       (mode === "borrowDbusd" &&
         (borrowData.borrowHeadroom === null ||
           borrowData.borrowHeadroom === BigInt(0))) ||
@@ -719,6 +890,18 @@ export function useBorrowForm(): BorrowFormState {
       value: borrowInterestDisplay,
     },
     {
+      label: "Current LTV",
+      value: formatPercent(currentLtvPercent),
+    },
+    {
+      label: "Projected LTV",
+      value: formatPercent(projectedLtvPercent),
+    },
+    {
+      label: "Withdrawable WETH",
+      value: withdrawableWethDisplay,
+    },
+    {
       label: `Max borrow @ ${maxBorrowPercentage}%`,
       value: maxBorrowDisplay,
     },
@@ -732,6 +915,10 @@ export function useBorrowForm(): BorrowFormState {
         borrowData.availableLiquidity !== null
           ? `${formatDbusdAmount(borrowData.availableLiquidity)} ${DBUSD_SYMBOL}`
           : "—",
+    },
+    {
+      label: "ETH wallet",
+      value: ethWalletDisplay,
     },
     {
       label: "WETH wallet",
