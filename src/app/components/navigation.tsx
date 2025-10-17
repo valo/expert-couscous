@@ -8,6 +8,7 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 const NAV_LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/earn", label: "Earn" },
+  { href: "/borrow", label: "Borrow" },
   { href: "/swap", label: "Swap" },
 ] as const;
 

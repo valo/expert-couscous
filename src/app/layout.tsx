@@ -23,6 +23,7 @@ const geistMono = Geist_Mono({
 const siteTitle = "Dibor Leverage Engine";
 const siteDescription = "Secure stablecoin infrastructure and seamless swaps built for the next generation of on-chain finance.";
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+const canonicalUrl = new URL("/", siteUrl).toString();
 
 export const metadata: Metadata = {
   title: siteTitle,
@@ -30,8 +31,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   manifest: "/site.webmanifest",
   openGraph: {
+    url: canonicalUrl,
     title: siteTitle,
     description: siteDescription,
+    siteName: siteTitle,
     images: [
       {
         url: "/logo.png",

@@ -10,12 +10,15 @@ Use pnpm for all package management and running scripts:
 - `pnpm run build` — produce a production bundle for CI or previews.
 - `pnpm run start` — serve the bundled app locally.
 - `pnpm run lint` — execute ESLint with the `next/core-web-vitals` preset; resolve findings before merging.
+- `pnpm run test:e2e` - run the integration tests
 
 ## Coding Style & Naming Conventions
 Prefer TypeScript React components and add "use client" only when required. Use 2-space indentation, keep JSX lean, and favor hooks over classes. Components and hooks follow `PascalCase`, helpers use `camelCase`, constants use `SCREAMING_SNAKE_CASE`. Run `npm run lint -- --fix` for safe formatting and rely on the `@/*` alias instead of long relative paths. Co-locate feature-specific helpers or styles with their component folder.
 
 ## Testing Guidelines
 Automated tests are not yet established; new work should include coverage alongside features. Place component tests in `src/app/<feature>/__tests__` with names like `WalletConnectButton.test.tsx`, using React Testing Library or Playwright as appropriate. Mock wallet providers for determinism, and add smoke checks that assert query states before approving a PR.
+
+When making changes make sure the lint and the production builds are working. Also run the integration tests.
 
 ## Commit & Pull Request Guidelines
 Write imperative, concise commit subjects (`Add wallet avatar variants`), mirroring the existing history (`Initial version`). Keep each commit focused and add body details when touching protocol configuration. Pull requests must explain the change, list executed commands, and attach screenshots or GIFs for UI updates. Link Jira or GitHub issues and flag follow-up actions for reviewers.
