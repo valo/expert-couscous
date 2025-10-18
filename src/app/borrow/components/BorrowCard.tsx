@@ -211,10 +211,9 @@ function CollateralTable({ rows }: { rows: CollateralRow[] }) {
       <div className="hidden bg-neutral-100 text-xs font-semibold uppercase tracking-wide text-neutral-600 dark:bg-neutral-900 dark:text-neutral-300 sm:grid sm:grid-cols-12 sm:gap-4 sm:px-5 sm:py-3">
         <span className="col-span-2">Collateral</span>
         <span className="col-span-2">Deposited</span>
-        <span className="col-span-2">Value</span>
         <span className="col-span-2">Price</span>
         <span className="col-span-2">LTV / Liquidation</span>
-        <span className="col-span-2">Action</span>
+        <span className="col-span-4">Action</span>
       </div>
       <div className="divide-y divide-neutral-200 dark:divide-neutral-800">
         {rows.map((row) => (
