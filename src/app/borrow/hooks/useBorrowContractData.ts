@@ -241,6 +241,28 @@ export function useBorrowContractData({
     return null;
   }, [ltvBorrowRaw]);
 
+  const { data: liquidationLtvRaw, refetch: refetchLtvLiquidation } = useReadContract({
+    abi: VAULT_ABI,
+    address: dbusdVaultAddress,
+    functionName: "LTVLiquidation",
+    args: wethVaultAddress ? [wethVaultAddress] : undefined,
+    query: {
+      enabled: Boolean(dbusdVaultAddress && wethVaultAddress),
+    },
+  });
+
+  const liquidationLtvBasisPoints = useMemo(() => {
+    if (typeof liquidationLtvRaw === "number") {
+      return liquidationLtvRaw;
+    }
+
+    if (typeof liquidationLtvRaw === "bigint") {
+      return Number(liquidationLtvRaw);
+    }
+
+    return null;
+  }, [liquidationLtvRaw]);
+
   const {
     data: interestRateRaw,
     refetch: refetchInterestRate,
@@ -436,6 +458,7 @@ export function useBorrowContractData({
       refetchAvailableLiquidity?.(),
       refetchCollateralValue?.(),
       refetchLtvBorrow?.(),
+      refetchLtvLiquidation?.(),
       refetchInterestRate?.(),
     ]);
   }, [
@@ -446,6 +469,7 @@ export function useBorrowContractData({
     refetchDbusdWalletBalance,
     refetchInterestRate,
     refetchLtvBorrow,
+    refetchLtvLiquidation,
     refetchMaxWithdrawAssets,
     refetchShareBalance,
     refetchWethWalletBalance,
@@ -472,6 +496,7 @@ export function useBorrowContractData({
     borrowAprPercent,
     interestRatePerSecond,
     maxLtvBasisPoints,
+    liquidationLtvBasisPoints,
     availableLiquidity,
     borrowedAmountInUnit,
     convertAssetsToUnit,
