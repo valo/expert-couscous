@@ -9,7 +9,7 @@ import {
   DBUSD_DECIMALS,
   DBUSD_SYMBOL,
   WETH_DECIMALS,
-  WETH_SYMBOL,
+  WBTC_DECIMALS,
   type BorrowMode,
 } from "../constants";
 import { formatDbusdAmount, formatTokenAmount } from "@/app/earn/utils";
@@ -23,7 +23,8 @@ import {
 
 import { useBorrowContractData } from "./useBorrowContractData";
 
-export type DepositAsset = "WETH" | "ETH";
+export type CollateralKey = "weth" | "wbtc";
+export type DepositAsset = "WETH" | "ETH" | "WBTC";
 
 export type ActionFormControls = {
   amount: string;
@@ -67,20 +68,42 @@ export type BorrowViewState = {
 };
 
 export function useBorrowForm(): BorrowViewState {
-  const [depositAmount, setDepositAmount] = useState("");
-  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [depositAmounts, setDepositAmounts] = useState<
+    Record<CollateralKey, string>
+  >({
+    weth: "",
+    wbtc: "",
+  });
+  const [withdrawAmounts, setWithdrawAmounts] = useState<
+    Record<CollateralKey, string>
+  >({
+    weth: "",
+    wbtc: "",
+  });
   const [borrowAmount, setBorrowAmount] = useState("");
   const [repayAmount, setRepayAmount] = useState("");
-  const [depositAsset, setDepositAsset] = useState<DepositAsset>("WETH");
+  const [depositAssetSelection, setDepositAssetSelection] = useState<
+    Record<CollateralKey, DepositAsset>
+  >({
+    weth: "WETH",
+    wbtc: "WBTC",
+  });
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [activeAction, setActiveAction] = useState<BorrowMode | null>(null);
+  const [activeAction, setActiveAction] = useState<{
+    mode: BorrowMode;
+    collateral?: CollateralKey;
+  } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const { address, isConnected } = useAccount();
 
   const wethAddress = TOKEN_METADATA.WETH.address as `0x${string}` | undefined;
+  const wbtcAddress = TOKEN_METADATA.WBTC.address as `0x${string}` | undefined;
   const dbusdAddress = TOKEN_METADATA.DBUSD.address as `0x${string}` | undefined;
   const wethVaultAddress = CONTRACT_ADDRESSES.wethVault as
+    | `0x${string}`
+    | undefined;
+  const wbtcVaultAddress = CONTRACT_ADDRESSES.wbtcVault as
     | `0x${string}`
     | undefined;
   const dbusdVaultAddress = CONTRACT_ADDRESSES.dbusdVault as
@@ -90,31 +113,51 @@ export function useBorrowForm(): BorrowViewState {
   const borrowData = useBorrowContractData({
     address,
     wethAddress,
+    wbtcAddress,
     dbusdAddress,
     wethVaultAddress,
+    wbtcVaultAddress,
     dbusdVaultAddress,
   });
 
   const {
-    collateralValue,
+    collaterals,
     unitOfAccountDecimals,
     unitOfAccountSymbol,
-    maxWithdrawValue,
     borrowedAmount,
-    borrowHeadroom,
-    withdrawHeadroomAssets,
-    borrowAprPercent,
-    maxLtvBasisPoints,
-    liquidationLtvBasisPoints,
     borrowedAmountInUnit,
-    convertAssetsToUnit,
+    borrowHeadroom,
+    borrowAprPercent,
     convertDbusdToUnit,
+    wethAllowanceQuery,
+    wbtcAllowanceQuery,
+    dbusdAllowanceQuery,
+    wethWalletBalance,
+    wbtcWalletBalance,
+    ethWalletBalance,
+    dbusdWalletBalance,
+    totalCollateralValue,
+    refetchAll,
   } = borrowData;
+  const collateralMap = useMemo(
+    () =>
+      collaterals.reduce<Record<CollateralKey, (typeof collaterals)[number]>>(
+        (map, collateral) => {
+          map[collateral.key] = collateral;
+          return map;
+        },
+        {} as Record<CollateralKey, (typeof collaterals)[number]>,
+      ),
+    [collaterals],
+  );
 
-  const depositAssetOptions: Array<{ value: string; label: string }> = [
-    { value: "WETH", label: "WETH" },
-    { value: "ETH", label: "ETH" },
-  ];
+  const depositAssetOptions: Record<CollateralKey, Array<{ value: string; label: string }>> = {
+    weth: [
+      { value: "WETH", label: "WETH" },
+      { value: "ETH", label: "ETH" },
+    ],
+    wbtc: [{ value: "WBTC", label: "WBTC" }],
+  };
 
   const { writeContractAsync } = useWriteContract();
 
@@ -130,15 +173,40 @@ export function useBorrowForm(): BorrowViewState {
     }
   };
 
-  const depositParsedAmount = useMemo(
-    () => parseAmount(depositAmount, WETH_DECIMALS),
-    [depositAmount],
+  const depositParsedAmounts = useMemo(
+    () => ({
+      weth: parseAmount(depositAmounts.weth, WETH_DECIMALS),
+      wbtc: parseAmount(depositAmounts.wbtc, WBTC_DECIMALS),
+    }),
+    [depositAmounts],
   );
 
-  const withdrawParsedAmount = useMemo(
-    () => parseAmount(withdrawAmount, WETH_DECIMALS),
-    [withdrawAmount],
+  const withdrawParsedAmounts = useMemo(
+    () => ({
+      weth: parseAmount(withdrawAmounts.weth, WETH_DECIMALS),
+      wbtc: parseAmount(withdrawAmounts.wbtc, WBTC_DECIMALS),
+    }),
+    [withdrawAmounts],
   );
+
+  const getDepositBalance = (key: CollateralKey) => {
+    if (key === "weth") {
+      return depositAssetSelection.weth === "ETH"
+        ? ethWalletBalance
+        : wethWalletBalance;
+    }
+
+    return wbtcWalletBalance;
+  };
+
+  const getDepositParsedAmount = (key: CollateralKey) =>
+    key === "weth" ? depositParsedAmounts.weth : depositParsedAmounts.wbtc;
+
+  const getWithdrawParsedAmount = (key: CollateralKey) =>
+    key === "weth" ? withdrawParsedAmounts.weth : withdrawParsedAmounts.wbtc;
+
+  const getDepositAssetLabel = (key: CollateralKey): DepositAsset =>
+    key === "weth" ? depositAssetSelection.weth : "WBTC";
 
   const borrowParsedAmount = useMemo(
     () => parseAmount(borrowAmount, DBUSD_DECIMALS),
@@ -149,44 +217,6 @@ export function useBorrowForm(): BorrowViewState {
     () => parseAmount(repayAmount, DBUSD_DECIMALS),
     [repayAmount],
   );
-
-  const depositBalance =
-    depositAsset === "ETH"
-      ? borrowData.ethWalletBalance
-      : borrowData.wethWalletBalance;
-
-  const exceedsDepositBalance =
-    Boolean(
-      depositParsedAmount &&
-        depositBalance &&
-        depositParsedAmount > depositBalance.value,
-    );
-
-  const withdrawLimitAssets = useMemo(() => {
-    const ltvLimit = withdrawHeadroomAssets;
-    const vaultLimit = maxWithdrawValue;
-
-    if (ltvLimit === null && vaultLimit === null) {
-      return null;
-    }
-
-    if (ltvLimit === null) {
-      return vaultLimit;
-    }
-
-    if (vaultLimit === null) {
-      return ltvLimit;
-    }
-
-    return ltvLimit < vaultLimit ? ltvLimit : vaultLimit;
-  }, [maxWithdrawValue, withdrawHeadroomAssets]);
-
-  const exceedsWithdrawLimit =
-    Boolean(
-      withdrawParsedAmount &&
-        withdrawLimitAssets !== null &&
-        withdrawParsedAmount > withdrawLimitAssets,
-    );
 
   const borrowHeadroomExceeded =
     Boolean(
@@ -206,25 +236,51 @@ export function useBorrowForm(): BorrowViewState {
   const insufficientRepayBalance =
     Boolean(
       repayParsedAmount &&
-        borrowData.dbusdWalletBalance &&
-        repayParsedAmount > borrowData.dbusdWalletBalance.value,
+        dbusdWalletBalance &&
+        repayParsedAmount > dbusdWalletBalance.value,
     );
 
-  const depositValueUnit = useMemo(() => {
-    if (!depositParsedAmount) {
-      return null;
-    }
+  const depositValueUnitByKey = useMemo(() => {
+    const values: Record<CollateralKey, bigint | null> = {
+      weth: null,
+      wbtc: null,
+    };
 
-    return convertAssetsToUnit?.(depositParsedAmount) ?? null;
-  }, [convertAssetsToUnit, depositParsedAmount]);
+    collaterals.forEach((collateral) => {
+      const parsedAmount =
+        collateral.key === "weth"
+          ? depositParsedAmounts.weth
+          : depositParsedAmounts.wbtc;
 
-  const withdrawValueUnit = useMemo(() => {
-    if (!withdrawParsedAmount) {
-      return null;
-    }
+      values[collateral.key] =
+        parsedAmount !== undefined
+          ? collateral.convertAssetsToUnit(parsedAmount) ?? null
+          : null;
+    });
 
-    return convertAssetsToUnit?.(withdrawParsedAmount) ?? null;
-  }, [convertAssetsToUnit, withdrawParsedAmount]);
+    return values;
+  }, [collaterals, depositParsedAmounts]);
+
+  const withdrawValueUnitByKey = useMemo(() => {
+    const values: Record<CollateralKey, bigint | null> = {
+      weth: null,
+      wbtc: null,
+    };
+
+    collaterals.forEach((collateral) => {
+      const parsedAmount =
+        collateral.key === "weth"
+          ? withdrawParsedAmounts.weth
+          : withdrawParsedAmounts.wbtc;
+
+      values[collateral.key] =
+        parsedAmount !== undefined
+          ? collateral.convertAssetsToUnit(parsedAmount) ?? null
+          : null;
+    });
+
+    return values;
+  }, [collaterals, withdrawParsedAmounts]);
 
   const borrowValueUnit = useMemo(() => {
     if (!borrowParsedAmount) {
@@ -246,13 +302,13 @@ export function useBorrowForm(): BorrowViewState {
     setStatusMessage(null);
   };
 
-  const handleDepositAmountChange = (value: string) => {
-    setDepositAmount(value);
+  const handleDepositAmountChange = (key: CollateralKey, value: string) => {
+    setDepositAmounts((prev) => ({ ...prev, [key]: value }));
     resetStatus();
   };
 
-  const handleWithdrawAmountChange = (value: string) => {
-    setWithdrawAmount(value);
+  const handleWithdrawAmountChange = (key: CollateralKey, value: string) => {
+    setWithdrawAmounts((prev) => ({ ...prev, [key]: value }));
     resetStatus();
   };
 
@@ -266,37 +322,51 @@ export function useBorrowForm(): BorrowViewState {
     resetStatus();
   };
 
-  const handleDepositAssetChange = (asset: DepositAsset) => {
-    if (asset === depositAsset) {
+  const handleDepositAssetChange = (
+    key: CollateralKey,
+    asset: DepositAsset,
+  ) => {
+    if (asset === depositAssetSelection[key]) {
       return;
     }
 
-    setDepositAsset(asset);
+    setDepositAssetSelection((prev) => ({ ...prev, [key]: asset }));
     resetStatus();
   };
 
-  const handleDepositMax = () => {
-    const balance =
-      depositAsset === "ETH"
-        ? borrowData.ethWalletBalance
-        : borrowData.wethWalletBalance;
+  const handleDepositMax = (key: CollateralKey) => {
+    const balance = getDepositBalance(key);
 
     if (!balance || balance.value === BigInt(0)) {
       return;
     }
 
-    setDepositAmount(
-      formatTokenAmount(balance.value, balance.decimals ?? WETH_DECIMALS),
-    );
+    setDepositAmounts((prev) => ({
+      ...prev,
+      [key]: formatTokenAmount(
+        balance.value,
+        balance.decimals ??
+          (key === "weth" ? WETH_DECIMALS : WBTC_DECIMALS),
+      ),
+    }));
     resetStatus();
   };
 
-  const handleWithdrawMax = () => {
+  const handleWithdrawMax = (key: CollateralKey) => {
+    const collateral = collateralMap[key];
+    const withdrawLimitAssets = collateral?.withdrawHeadroomAssets ?? null;
+
     if (!withdrawLimitAssets || withdrawLimitAssets === BigInt(0)) {
       return;
     }
 
-    setWithdrawAmount(formatTokenAmount(withdrawLimitAssets, WETH_DECIMALS));
+    setWithdrawAmounts((prev) => ({
+      ...prev,
+      [key]: formatTokenAmount(
+        withdrawLimitAssets,
+        key === "weth" ? WETH_DECIMALS : WBTC_DECIMALS,
+      ),
+    }));
     resetStatus();
   };
 
@@ -318,35 +388,47 @@ export function useBorrowForm(): BorrowViewState {
     resetStatus();
   };
 
-  const needsDepositApproval = useMemo(() => {
-    if (!depositParsedAmount) {
-      return false;
-    }
-
-    const allowance = borrowData.wethAllowanceQuery.data;
-
-    if (!allowance) {
-      return true;
-    }
-
-    return allowance < depositParsedAmount;
-  }, [borrowData.wethAllowanceQuery.data, depositParsedAmount]);
+  const needsDepositApproval = useMemo(
+    () => ({
+      weth:
+        depositParsedAmounts.weth !== undefined &&
+        Boolean(
+          !wethAllowanceQuery.data ||
+            wethAllowanceQuery.data < depositParsedAmounts.weth,
+        ),
+      wbtc:
+        depositParsedAmounts.wbtc !== undefined &&
+        Boolean(
+          !wbtcAllowanceQuery.data ||
+            wbtcAllowanceQuery.data < depositParsedAmounts.wbtc,
+        ),
+    }),
+    [
+      depositParsedAmounts.wbtc,
+      depositParsedAmounts.weth,
+      wbtcAllowanceQuery.data,
+      wethAllowanceQuery.data,
+    ],
+  );
 
   const needsRepayApproval = useMemo(() => {
     if (!repayParsedAmount) {
       return false;
     }
 
-    const allowance = borrowData.dbusdAllowanceQuery.data;
+    const allowance = dbusdAllowanceQuery.data;
 
     if (!allowance) {
       return true;
     }
 
     return allowance < repayParsedAmount;
-  }, [borrowData.dbusdAllowanceQuery.data, repayParsedAmount]);
+  }, [dbusdAllowanceQuery.data, repayParsedAmount]);
 
-  const performAction = async (action: BorrowMode) => {
+  const performAction = async (
+    action: BorrowMode,
+    collateralKey?: CollateralKey,
+  ) => {
     resetStatus();
 
     if (!isConnected || !address) {
@@ -354,11 +436,16 @@ export function useBorrowForm(): BorrowViewState {
       return;
     }
 
+    const collateral = collateralKey ? collateralMap[collateralKey] : undefined;
     const parsedAmount =
       action === "depositCollateral"
-        ? depositParsedAmount
+        ? collateralKey
+          ? getDepositParsedAmount(collateralKey)
+          : undefined
         : action === "withdrawCollateral"
-        ? withdrawParsedAmount
+        ? collateralKey
+          ? getWithdrawParsedAmount(collateralKey)
+          : undefined
         : action === "borrowDbusd"
         ? borrowParsedAmount
         : repayParsedAmount;
@@ -370,14 +457,21 @@ export function useBorrowForm(): BorrowViewState {
 
     if (
       (action === "depositCollateral" || action === "withdrawCollateral") &&
-      !wethVaultAddress
+      (!collateral || !collateral.vaultAddress)
     ) {
-      setStatusMessage("WETH vault address is not configured.");
+      setStatusMessage(
+        `${collateral?.symbol ?? "Collateral"} vault address is not configured.`,
+      );
       return;
     }
 
-    if (action === "depositCollateral" && !wethAddress) {
-      setStatusMessage("WETH address is not configured.");
+    if (
+      action === "depositCollateral" &&
+      (!collateral || !collateral.tokenAddress)
+    ) {
+      setStatusMessage(
+        `${collateral?.symbol ?? "Collateral"} address is not configured.`,
+      );
       return;
     }
 
@@ -394,7 +488,33 @@ export function useBorrowForm(): BorrowViewState {
       return;
     }
 
-    if (action === "depositCollateral" && exceedsDepositBalance) {
+    const depositBalance =
+      action === "depositCollateral" && collateralKey
+        ? getDepositBalance(collateralKey)
+        : null;
+
+    const exceedsDepositBalance =
+      action === "depositCollateral" &&
+      collateralKey &&
+      Boolean(
+        parsedAmount &&
+          depositBalance &&
+          parsedAmount > (depositBalance.value ?? BigInt(0)),
+      );
+
+    const withdrawLimitAssets =
+      action === "withdrawCollateral" ? collateral?.withdrawHeadroomAssets : null;
+
+    const exceedsWithdrawLimit =
+      action === "withdrawCollateral" &&
+      collateralKey &&
+      Boolean(
+        parsedAmount &&
+          withdrawLimitAssets !== null &&
+          parsedAmount > withdrawLimitAssets,
+      );
+
+    if (exceedsDepositBalance) {
       setStatusMessage("Amount exceeds wallet balance.");
       return;
     }
@@ -429,15 +549,25 @@ export function useBorrowForm(): BorrowViewState {
     }
 
     try {
-      setActiveAction(action);
+      setActiveAction({ mode: action, collateral: collateralKey });
       setIsProcessing(true);
 
-      if (action === "depositCollateral" && wethAddress && wethVaultAddress) {
-        if (depositAsset === "ETH") {
+      if (
+        action === "depositCollateral" &&
+        collateral &&
+        collateral.vaultAddress &&
+        collateral.tokenAddress
+      ) {
+        const selectedAsset =
+          collateralKey === "weth"
+            ? depositAssetSelection.weth
+            : depositAssetSelection.wbtc;
+
+        if (collateralKey === "weth" && selectedAsset === "ETH") {
           setStatusMessage("Wrapping ETH…");
           const wrapHash = await writeContractAsync({
             abi: WETH_ABI,
-            address: wethAddress,
+            address: collateral.tokenAddress,
             functionName: "deposit",
             args: [],
             value: parsedAmount,
@@ -446,13 +576,18 @@ export function useBorrowForm(): BorrowViewState {
           await waitForTransactionReceipt(wagmiConfig, { hash: wrapHash });
         }
 
-        if (needsDepositApproval) {
+        const approvalNeeded =
+          collateralKey === "weth"
+            ? needsDepositApproval.weth
+            : needsDepositApproval.wbtc;
+
+        if (approvalNeeded) {
           setStatusMessage("Submitting approval…");
           const approvalHash = await writeContractAsync({
             abi: erc20Abi,
-            address: wethAddress,
+            address: collateral.tokenAddress,
             functionName: "approve",
-            args: [wethVaultAddress, parsedAmount],
+            args: [collateral.vaultAddress, parsedAmount],
           });
 
           await waitForTransactionReceipt(wagmiConfig, { hash: approvalHash });
@@ -461,26 +596,30 @@ export function useBorrowForm(): BorrowViewState {
         setStatusMessage("Depositing…");
         const depositHash = await writeContractAsync({
           abi: VAULT_ABI,
-          address: wethVaultAddress,
+          address: collateral.vaultAddress,
           functionName: "deposit",
           args: [parsedAmount, address],
         });
 
         await waitForTransactionReceipt(wagmiConfig, { hash: depositHash });
         setStatusMessage("Deposit completed successfully.");
-        setDepositAmount("");
-      } else if (action === "withdrawCollateral" && wethVaultAddress) {
+        setDepositAmounts((prev) => ({ ...prev, [collateral.key]: "" }));
+      } else if (
+        action === "withdrawCollateral" &&
+        collateral &&
+        collateral.vaultAddress
+      ) {
         setStatusMessage("Withdrawing…");
         const withdrawHash = await writeContractAsync({
           abi: VAULT_ABI,
-          address: wethVaultAddress,
+          address: collateral.vaultAddress,
           functionName: "withdraw",
           args: [parsedAmount, address, address],
         });
 
         await waitForTransactionReceipt(wagmiConfig, { hash: withdrawHash });
         setStatusMessage("Withdrawal completed successfully.");
-        setWithdrawAmount("");
+        setWithdrawAmounts((prev) => ({ ...prev, [collateral.key]: "" }));
       } else if (action === "borrowDbusd" && dbusdVaultAddress) {
         setStatusMessage("Borrowing…");
         const borrowHash = await writeContractAsync({
@@ -519,7 +658,7 @@ export function useBorrowForm(): BorrowViewState {
         setRepayAmount("");
       }
 
-      await borrowData.refetchAll();
+      await refetchAll();
     } catch (error) {
       const message =
         error instanceof Error
@@ -531,60 +670,6 @@ export function useBorrowForm(): BorrowViewState {
       setActiveAction(null);
     }
   };
-
-  const depositButtonLabel = useMemo(() => {
-    if (!isConnected) {
-      return "Connect wallet";
-    }
-
-    if (!depositAmount || !depositParsedAmount) {
-      return "Enter amount";
-    }
-
-    if (isProcessing && activeAction === "depositCollateral") {
-      return needsDepositApproval ? "Approving…" : "Depositing…";
-    }
-
-    if (needsDepositApproval) {
-      return "Approve & deposit";
-    }
-
-    return "Deposit";
-  }, [
-    activeAction,
-    depositAmount,
-    depositParsedAmount,
-    isConnected,
-    isProcessing,
-    needsDepositApproval,
-  ]);
-
-  const withdrawButtonLabel = useMemo(() => {
-    if (!isConnected) {
-      return "Connect wallet";
-    }
-
-    if (!withdrawAmount || !withdrawParsedAmount) {
-      return "Enter amount";
-    }
-
-    if (withdrawLimitAssets === null || withdrawLimitAssets === BigInt(0)) {
-      return "Nothing to withdraw";
-    }
-
-    if (isProcessing && activeAction === "withdrawCollateral") {
-      return "Withdrawing…";
-    }
-
-    return "Withdraw";
-  }, [
-    activeAction,
-    isConnected,
-    isProcessing,
-    withdrawAmount,
-    withdrawLimitAssets,
-    withdrawParsedAmount,
-  ]);
 
   const borrowButtonLabel = useMemo(() => {
     if (!isConnected) {
@@ -599,7 +684,7 @@ export function useBorrowForm(): BorrowViewState {
       return "Nothing to borrow";
     }
 
-    if (isProcessing && activeAction === "borrowDbusd") {
+    if (isProcessing && activeAction?.mode === "borrowDbusd") {
       return "Borrowing…";
     }
 
@@ -626,7 +711,7 @@ export function useBorrowForm(): BorrowViewState {
       return "Nothing to repay";
     }
 
-    if (isProcessing && activeAction === "repayDbusd") {
+    if (isProcessing && activeAction?.mode === "repayDbusd") {
       return needsRepayApproval ? "Approving…" : "Repaying…";
     }
 
@@ -645,25 +730,6 @@ export function useBorrowForm(): BorrowViewState {
     repayParsedAmount,
   ]);
 
-  const isDepositDisabled =
-    !isConnected ||
-    !depositParsedAmount ||
-    isProcessing ||
-    (depositAsset === "ETH"
-      ? !borrowData.ethWalletBalance ||
-        borrowData.ethWalletBalance.value === BigInt(0)
-      : !borrowData.wethWalletBalance ||
-        borrowData.wethWalletBalance.value === BigInt(0)) ||
-    exceedsDepositBalance;
-
-  const isWithdrawDisabled =
-    !isConnected ||
-    !withdrawParsedAmount ||
-    isProcessing ||
-    withdrawLimitAssets === null ||
-    withdrawLimitAssets === BigInt(0) ||
-    exceedsWithdrawLimit;
-
   const isBorrowDisabled =
     !isConnected ||
     !borrowParsedAmount ||
@@ -681,73 +747,6 @@ export function useBorrowForm(): BorrowViewState {
     exceedsRepayBorrowed ||
     insufficientRepayBalance;
 
-  const collateralValueNumber =
-    collateralValue !== null
-      ? Number(formatUnits(collateralValue, unitOfAccountDecimals))
-      : null;
-
-  const collateralAssetsNumber =
-    maxWithdrawValue !== null
-      ? Number(formatUnits(maxWithdrawValue, WETH_DECIMALS))
-      : null;
-
-  const collateralPriceDisplay =
-    collateralValueNumber !== null &&
-    collateralAssetsNumber !== null &&
-    collateralAssetsNumber > 0
-      ? `${(collateralValueNumber / collateralAssetsNumber).toFixed(2)} ${unitOfAccountSymbol}/${WETH_SYMBOL}`
-      : "—";
-
-  const liquidationPriceDisplay = (() => {
-    if (
-      liquidationLtvBasisPoints === null ||
-      liquidationLtvBasisPoints === 0 ||
-      borrowedAmountInUnit === null ||
-      collateralAssetsNumber === null ||
-      collateralAssetsNumber <= 0
-    ) {
-      return "—";
-    }
-
-    const debtValue = Number(
-      formatUnits(borrowedAmountInUnit, unitOfAccountDecimals),
-    );
-
-    const threshold = liquidationLtvBasisPoints / 10000;
-
-    if (!Number.isFinite(debtValue) || threshold <= 0) {
-      return "—";
-    }
-
-    const price = debtValue / (collateralAssetsNumber * threshold);
-
-    if (!Number.isFinite(price)) {
-      return "—";
-    }
-
-    return `${price.toFixed(2)} ${unitOfAccountSymbol}/${WETH_SYMBOL}`;
-  })();
-
-  const maxLtvDisplay =
-    maxLtvBasisPoints !== null
-      ? `${(maxLtvBasisPoints / 100).toFixed(2)}%`
-      : "—";
-
-  const liquidationLtvDisplay =
-    liquidationLtvBasisPoints !== null
-      ? `${(liquidationLtvBasisPoints / 100).toFixed(2)}%`
-      : "—";
-
-  const withdrawableWethDisplay =
-    withdrawLimitAssets !== null
-      ? `${formatTokenAmount(withdrawLimitAssets, WETH_DECIMALS)} ${WETH_SYMBOL}`
-      : "—";
-
-  const collateralValueDisplay =
-    collateralValue !== null
-      ? `${formatTokenAmount(collateralValue, unitOfAccountDecimals, 2)} ${unitOfAccountSymbol}`
-      : "—";
-
   const borrowedDisplay =
     borrowedAmount !== null
       ? `${formatDbusdAmount(borrowedAmount)} ${DBUSD_SYMBOL}`
@@ -760,8 +759,8 @@ export function useBorrowForm(): BorrowViewState {
 
   const currentLtvPercent = useMemo(() => {
     if (
-      collateralValue === null ||
-      collateralValue === BigInt(0) ||
+      totalCollateralValue === null ||
+      totalCollateralValue === BigInt(0) ||
       debtValueUnits === null
     ) {
       return null;
@@ -769,7 +768,7 @@ export function useBorrowForm(): BorrowViewState {
 
     const debt = Number(formatUnits(debtValueUnits, unitOfAccountDecimals));
     const collateral = Number(
-      formatUnits(collateralValue, unitOfAccountDecimals),
+      formatUnits(totalCollateralValue, unitOfAccountDecimals),
     );
 
     if (!Number.isFinite(debt) || !Number.isFinite(collateral) || collateral === 0) {
@@ -777,29 +776,43 @@ export function useBorrowForm(): BorrowViewState {
     }
 
     return (debt / collateral) * 100;
-  }, [collateralValue, debtValueUnits, unitOfAccountDecimals]);
+  }, [totalCollateralValue, debtValueUnits, unitOfAccountDecimals]);
+
+  const totalDepositValueUnit = useMemo(
+    () =>
+      Object.values(depositValueUnitByKey).reduce<bigint>(
+        (sum, value) => (value !== null ? sum + value : sum),
+        BigInt(0),
+      ),
+    [depositValueUnitByKey],
+  );
+
+  const totalWithdrawValueUnit = useMemo(
+    () =>
+      Object.values(withdrawValueUnitByKey).reduce<bigint>(
+        (sum, value) => (value !== null ? sum + value : sum),
+        BigInt(0),
+      ),
+    [withdrawValueUnitByKey],
+  );
 
   const projectedLtvPercent = useMemo(() => {
     if (
-      collateralValue === null ||
+      totalCollateralValue === null ||
       debtValueUnits === null
     ) {
       return null;
     }
 
-    let projectedCollateral = collateralValue;
+    let projectedCollateral = totalCollateralValue;
     let projectedDebt = debtValueUnits;
 
-    if (depositValueUnit !== null) {
-      projectedCollateral += depositValueUnit;
-    }
+    projectedCollateral += totalDepositValueUnit;
 
-    if (withdrawValueUnit !== null) {
-      projectedCollateral =
-        projectedCollateral > withdrawValueUnit
-          ? projectedCollateral - withdrawValueUnit
-          : BigInt(0);
-    }
+    projectedCollateral =
+      projectedCollateral > totalWithdrawValueUnit
+        ? projectedCollateral - totalWithdrawValueUnit
+        : BigInt(0);
 
     if (borrowValueUnit !== null) {
       projectedDebt += borrowValueUnit;
@@ -826,12 +839,12 @@ export function useBorrowForm(): BorrowViewState {
     return (debt / collateral) * 100;
   }, [
     borrowValueUnit,
-    collateralValue,
+    totalCollateralValue,
     debtValueUnits,
-    depositValueUnit,
+    totalDepositValueUnit,
     repayValueUnit,
     unitOfAccountDecimals,
-    withdrawValueUnit,
+    totalWithdrawValueUnit,
   ]);
 
   const formatPercent = (value: number | null) =>
@@ -842,60 +855,214 @@ export function useBorrowForm(): BorrowViewState {
       ? `${formatDbusdAmount(borrowHeadroom)} ${DBUSD_SYMBOL}`
       : "—";
 
-  const collateralRows: CollateralRow[] = [
-    {
-      key: "weth",
-      symbol: WETH_SYMBOL,
-      depositedAmount:
-        maxWithdrawValue !== null
-          ? `${formatTokenAmount(maxWithdrawValue, WETH_DECIMALS)} ${WETH_SYMBOL}`
-          : "—",
-      depositedValue: collateralValueDisplay,
-      price: collateralPriceDisplay,
+  const collateralRows: CollateralRow[] = collaterals.map((collateral) => {
+    const depositAmount = depositAmounts[collateral.key];
+    const withdrawAmount = withdrawAmounts[collateral.key];
+    const depositParsed = getDepositParsedAmount(collateral.key);
+    const withdrawParsed = getWithdrawParsedAmount(collateral.key);
+    const depositBalance = getDepositBalance(collateral.key);
+    const withdrawLimitAssets = collateral.withdrawHeadroomAssets;
+    const depositApprovalNeeded =
+      collateral.key === "weth"
+        ? needsDepositApproval.weth
+        : needsDepositApproval.wbtc;
+
+    const depositButtonLabel = (() => {
+      if (!isConnected) {
+        return "Connect wallet";
+      }
+
+      if (!depositAmount || !depositParsed) {
+        return "Enter amount";
+      }
+
+      if (
+        isProcessing &&
+        activeAction?.mode === "depositCollateral" &&
+        activeAction.collateral === collateral.key
+      ) {
+        return depositApprovalNeeded ? "Approving…" : "Depositing…";
+      }
+
+      if (depositApprovalNeeded) {
+        return "Approve & deposit";
+      }
+
+      return "Deposit";
+    })();
+
+    const withdrawButtonLabel = (() => {
+      if (!isConnected) {
+        return "Connect wallet";
+      }
+
+      if (!withdrawAmount || !withdrawParsed) {
+        return "Enter amount";
+      }
+
+      if (withdrawLimitAssets === null || withdrawLimitAssets === BigInt(0)) {
+        return "Nothing to withdraw";
+      }
+
+      if (
+        isProcessing &&
+        activeAction?.mode === "withdrawCollateral" &&
+        activeAction.collateral === collateral.key
+      ) {
+        return "Withdrawing…";
+      }
+
+      return "Withdraw";
+    })();
+
+    const isDepositDisabled =
+      !isConnected ||
+      !depositParsed ||
+      isProcessing ||
+      !depositBalance ||
+      (depositBalance.value ?? BigInt(0)) === BigInt(0) ||
+      depositParsed > (depositBalance.value ?? BigInt(0));
+
+    const isWithdrawDisabled =
+      !isConnected ||
+      !withdrawParsed ||
+      isProcessing ||
+      withdrawLimitAssets === null ||
+      withdrawLimitAssets === BigInt(0) ||
+      withdrawParsed > withdrawLimitAssets;
+
+    const collateralValueNumber =
+      collateral.collateralValue !== null
+        ? Number(formatUnits(collateral.collateralValue, unitOfAccountDecimals))
+        : null;
+
+    const collateralAssetsNumber =
+      collateral.maxWithdrawAssets !== null
+        ? Number(formatUnits(collateral.maxWithdrawAssets, collateral.decimals))
+        : null;
+
+    const priceDisplay =
+      collateralValueNumber !== null &&
+      collateralAssetsNumber !== null &&
+      collateralAssetsNumber > 0
+        ? `${(collateralValueNumber / collateralAssetsNumber).toFixed(2)} ${unitOfAccountSymbol}/${collateral.symbol}`
+        : "—";
+
+    const liquidationPriceDisplay = (() => {
+      if (
+        collateral.liquidationLtvBasisPoints === null ||
+        collateral.liquidationLtvBasisPoints === 0 ||
+        borrowedAmountInUnit === null ||
+        collateralAssetsNumber === null ||
+        collateralAssetsNumber <= 0
+      ) {
+        return "—";
+      }
+
+      const debtValue = Number(
+        formatUnits(borrowedAmountInUnit, unitOfAccountDecimals),
+      );
+
+      const threshold = collateral.liquidationLtvBasisPoints / 10000;
+
+      if (!Number.isFinite(debtValue) || threshold <= 0) {
+        return "—";
+      }
+
+      const price = debtValue / (collateralAssetsNumber * threshold);
+
+      if (!Number.isFinite(price)) {
+        return "—";
+      }
+
+      return `${price.toFixed(2)} ${unitOfAccountSymbol}/${collateral.symbol}`;
+    })();
+
+    const maxLtvDisplay =
+      collateral.maxLtvBasisPoints !== null
+        ? `${(collateral.maxLtvBasisPoints / 100).toFixed(2)}%`
+        : "—";
+
+    const liquidationLtvDisplay =
+      collateral.liquidationLtvBasisPoints !== null
+        ? `${(collateral.liquidationLtvBasisPoints / 100).toFixed(2)}%`
+        : "—";
+
+    const withdrawableDisplay =
+      withdrawLimitAssets !== null
+        ? `${formatTokenAmount(
+            withdrawLimitAssets,
+            collateral.decimals,
+          )} ${collateral.symbol}`
+        : "—";
+
+    const depositedValueDisplay =
+      collateral.collateralValue !== null
+        ? `${formatTokenAmount(
+            collateral.collateralValue,
+            unitOfAccountDecimals,
+            2,
+          )} ${unitOfAccountSymbol}`
+        : "—";
+
+    const depositedAmountDisplay =
+      collateral.maxWithdrawAssets !== null
+        ? `${formatTokenAmount(
+            collateral.maxWithdrawAssets,
+            collateral.decimals,
+          )} ${collateral.symbol}`
+        : "—";
+
+    return {
+      key: collateral.key,
+      symbol: collateral.symbol,
+      depositedAmount: depositedAmountDisplay,
+      depositedValue: depositedValueDisplay,
+      price: priceDisplay,
       maxLtv: maxLtvDisplay,
       liquidationLtv: liquidationLtvDisplay,
       liquidationPrice: liquidationPriceDisplay,
       primaryActionLabel: "Deposit",
       primaryAction: {
         amount: depositAmount,
-        onChange: handleDepositAmountChange,
-        onMax: handleDepositMax,
+        onChange: (value) => handleDepositAmountChange(collateral.key, value),
+        onMax: () => handleDepositMax(collateral.key),
         isMaxDisabled:
           !depositBalance || (depositBalance.value ?? BigInt(0)) === BigInt(0),
         buttonLabel: depositButtonLabel,
         isDisabled: isDepositDisabled,
         onSubmit: () => {
-          void performAction("depositCollateral");
+          void performAction("depositCollateral", collateral.key);
         },
-        assetOptions: depositAssetOptions,
-        selectedAsset: depositAsset,
+        assetOptions: depositAssetOptions[collateral.key],
+        selectedAsset: getDepositAssetLabel(collateral.key),
         onAssetChange: (value) =>
-          handleDepositAssetChange(value as DepositAsset),
+          handleDepositAssetChange(collateral.key, value as DepositAsset),
         helperText: `Wallet: ${
           depositBalance
             ? `${formatTokenAmount(
                 depositBalance.value,
-                depositBalance.decimals ?? WETH_DECIMALS,
-              )} ${depositAsset}`
+                depositBalance.decimals ?? collateral.decimals,
+              )} ${getDepositAssetLabel(collateral.key)}`
             : "—"
         }`,
       },
       secondaryActionLabel: "Withdraw",
       secondaryAction: {
         amount: withdrawAmount,
-        onChange: handleWithdrawAmountChange,
-        onMax: handleWithdrawMax,
+        onChange: (value) => handleWithdrawAmountChange(collateral.key, value),
+        onMax: () => handleWithdrawMax(collateral.key),
         isMaxDisabled:
           !withdrawLimitAssets || withdrawLimitAssets === BigInt(0),
         buttonLabel: withdrawButtonLabel,
         isDisabled: isWithdrawDisabled,
         onSubmit: () => {
-          void performAction("withdrawCollateral");
+          void performAction("withdrawCollateral", collateral.key);
         },
-        helperText: `Withdrawable: ${withdrawableWethDisplay}`,
+        helperText: `Withdrawable: ${withdrawableDisplay}`,
       },
-    },
-  ];
+    };
+  });
 
   const loanSummary: LoanSummary = {
     stats: [

@@ -11,7 +11,9 @@ export const CONTRACT_ADDRESSES = {
   dbusd: process.env.NEXT_PUBLIC_DBUSD_ADDRESS as `0x${string}` | undefined,
   srm: process.env.NEXT_PUBLIC_SRM_ADDRESS as `0x${string}` | undefined,
   weth: process.env.NEXT_PUBLIC_WETH_ADDRESS?.trim() as `0x${string}` | undefined,
+  wbtc: process.env.NEXT_PUBLIC_WBTC_ADDRESS?.trim() as `0x${string}` | undefined,
   wethVault: process.env.NEXT_PUBLIC_WETH_VAULT_ADDRESS?.trim() as `0x${string}` | undefined,
+  wbtcVault: process.env.NEXT_PUBLIC_WBTC_VAULT_ADDRESS?.trim() as `0x${string}` | undefined,
   dbusdVault: process.env.NEXT_PUBLIC_DBUSD_VAULT_ADDRESS?.trim() as `0x${string}` | undefined,
 } as const;
 
@@ -30,6 +32,11 @@ export const TOKEN_METADATA = {
     symbol: "WETH",
     decimals: 18,
     address: CONTRACT_ADDRESSES.weth,
+  },
+  WBTC: {
+    symbol: "WBTC",
+    decimals: 8,
+    address: CONTRACT_ADDRESSES.wbtc,
   },
 } as const;
 
