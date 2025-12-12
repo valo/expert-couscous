@@ -503,7 +503,9 @@ export function useBorrowForm(): BorrowViewState {
       );
 
     const withdrawLimitAssets =
-      action === "withdrawCollateral" ? collateral?.withdrawHeadroomAssets : null;
+      action === "withdrawCollateral"
+        ? collateral?.withdrawHeadroomAssets ?? null
+        : null;
 
     const exceedsWithdrawLimit =
       action === "withdrawCollateral" &&
