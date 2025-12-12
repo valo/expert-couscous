@@ -5,7 +5,12 @@ import { erc20Abi, formatUnits } from "viem";
 import { useBalance, useReadContract } from "wagmi";
 
 import { SECONDS_PER_YEAR } from "@/app/earn/constants";
-import { EULER_ROUTER_ABI, TOKEN_METADATA, VAULT_ABI } from "@/lib/contracts";
+import {
+  EULER_ROUTER_ABI,
+  EVC_ABI,
+  TOKEN_METADATA,
+  VAULT_ABI,
+} from "@/lib/contracts";
 
 import { DBUSD_DECIMALS } from "../constants";
 
@@ -39,6 +44,7 @@ type BorrowContractDataArgs = {
   wethVaultAddress?: `0x${string}`;
   wbtcVaultAddress?: `0x${string}`;
   dbusdVaultAddress?: `0x${string}`;
+  evcAddress?: `0x${string}`;
 };
 
 type CollateralContractData = {
@@ -56,6 +62,7 @@ type CollateralContractData = {
   liquidationLtvBasisPoints: number | null;
   withdrawHeadroomAssets: bigint | null;
   convertAssetsToUnit: (assets: bigint | null | undefined) => bigint | null;
+  isCollateralEnabled: boolean | null;
 };
 
 export function useBorrowContractData({
@@ -66,6 +73,7 @@ export function useBorrowContractData({
   wethVaultAddress,
   wbtcVaultAddress,
   dbusdVaultAddress,
+  evcAddress,
 }: BorrowContractDataArgs) {
   const wethAllowanceQuery = useReadContract({
     abi: erc20Abi,
@@ -97,6 +105,36 @@ export function useBorrowContractData({
       enabled: Boolean(address && dbusdAddress && dbusdVaultAddress),
     },
   });
+
+  const wethCollateralEnabledQuery = useReadContract({
+    abi: EVC_ABI,
+    address: evcAddress,
+    functionName: "isCollateralEnabled",
+    args: address && wethVaultAddress ? [address, wethVaultAddress] : undefined,
+    query: {
+      enabled: Boolean(address && evcAddress && wethVaultAddress),
+    },
+  });
+
+  const wbtcCollateralEnabledQuery = useReadContract({
+    abi: EVC_ABI,
+    address: evcAddress,
+    functionName: "isCollateralEnabled",
+    args: address && wbtcVaultAddress ? [address, wbtcVaultAddress] : undefined,
+    query: {
+      enabled: Boolean(address && evcAddress && wbtcVaultAddress),
+    },
+  });
+
+  const wethCollateralEnabled =
+    typeof wethCollateralEnabledQuery.data === "boolean"
+      ? wethCollateralEnabledQuery.data
+      : null;
+
+  const wbtcCollateralEnabled =
+    typeof wbtcCollateralEnabledQuery.data === "boolean"
+      ? wbtcCollateralEnabledQuery.data
+      : null;
 
   const {
     data: wethWalletBalance,
@@ -608,6 +646,7 @@ export function useBorrowContractData({
           maxWithdrawValue,
           maxLtvBasisPoints,
         ),
+        isCollateralEnabled: wethCollateralEnabled,
         convertAssetsToUnit: convertAssetsToUnit(
           collateralValue,
           maxWithdrawValue,
@@ -634,6 +673,7 @@ export function useBorrowContractData({
           wbtcMaxWithdrawValue,
           wbtcMaxLtvBasisPoints,
         ),
+        isCollateralEnabled: wbtcCollateralEnabled,
         convertAssetsToUnit: convertAssetsToUnit(
           wbtcCollateralValue,
           wbtcMaxWithdrawValue,
@@ -663,6 +703,8 @@ export function useBorrowContractData({
     wethWalletBalance,
     wbtcWalletBalance,
     liquidationLtvBasisPoints,
+    wethCollateralEnabled,
+    wbtcCollateralEnabled,
   ]);
 
   const totalCollateralValue = useMemo(() => {
@@ -715,6 +757,8 @@ export function useBorrowContractData({
       wethAllowanceQuery.refetch?.(),
       wbtcAllowanceQuery.refetch?.(),
       dbusdAllowanceQuery.refetch?.(),
+      wethCollateralEnabledQuery.refetch?.(),
+      wbtcCollateralEnabledQuery.refetch?.(),
       refetchWethWalletBalance?.(),
       refetchWbtcWalletBalance?.(),
       refetchEthWalletBalance?.(),
@@ -754,6 +798,8 @@ export function useBorrowContractData({
     refetchWethWalletBalance,
     wbtcAllowanceQuery,
     wethAllowanceQuery,
+    wethCollateralEnabledQuery,
+    wbtcCollateralEnabledQuery,
   ]);
 
   return {

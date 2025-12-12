@@ -3,6 +3,7 @@ import psmArtifact from "./abi/PSM.json";
 import savingsRateModuleArtifact from "./abi/SavingsRateModule.json";
 import vaultArtifact from "./abi/Vault.json";
 import eulerRouterArtifact from "./abi/EulerRouter.json";
+import evcArtifact from "./abi/EVC.json";
 import wethArtifact from "./abi/WETH.json";
 
 export const CONTRACT_ADDRESSES = {
@@ -15,6 +16,7 @@ export const CONTRACT_ADDRESSES = {
   wethVault: process.env.NEXT_PUBLIC_WETH_VAULT_ADDRESS?.trim() as `0x${string}` | undefined,
   wbtcVault: process.env.NEXT_PUBLIC_WBTC_VAULT_ADDRESS?.trim() as `0x${string}` | undefined,
   dbusdVault: process.env.NEXT_PUBLIC_DBUSD_VAULT_ADDRESS?.trim() as `0x${string}` | undefined,
+  evc: process.env.NEXT_PUBLIC_EVC_ADDRESS?.trim() as `0x${string}` | undefined,
 } as const;
 
 export const TOKEN_METADATA = {
@@ -44,4 +46,5 @@ export const PSM_ABI = psmArtifact as Abi;
 export const SRM_ABI = savingsRateModuleArtifact as Abi;
 export const VAULT_ABI = vaultArtifact as Abi;
 export const EULER_ROUTER_ABI = eulerRouterArtifact as Abi;
+export const EVC_ABI = evcArtifact as Abi;
 export const WETH_ABI = wethArtifact as Abi;

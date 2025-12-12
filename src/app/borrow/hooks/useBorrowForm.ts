@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { erc20Abi, formatUnits, parseUnits } from "viem";
 import { useAccount, useWriteContract } from "wagmi";
-import { waitForTransactionReceipt } from "wagmi/actions";
+import { readContract, waitForTransactionReceipt } from "wagmi/actions";
 
 import {
   DBUSD_DECIMALS,
@@ -16,6 +16,7 @@ import { formatDbusdAmount, formatTokenAmount } from "@/app/earn/utils";
 import { config as wagmiConfig } from "@/lib/config";
 import {
   CONTRACT_ADDRESSES,
+  EVC_ABI,
   TOKEN_METADATA,
   VAULT_ABI,
   WETH_ABI,
@@ -109,6 +110,7 @@ export function useBorrowForm(): BorrowViewState {
   const dbusdVaultAddress = CONTRACT_ADDRESSES.dbusdVault as
     | `0x${string}`
     | undefined;
+  const evcAddress = CONTRACT_ADDRESSES.evc as `0x${string}` | undefined;
 
   const borrowData = useBorrowContractData({
     address,
@@ -118,6 +120,7 @@ export function useBorrowForm(): BorrowViewState {
     wethVaultAddress,
     wbtcVaultAddress,
     dbusdVaultAddress,
+    evcAddress,
   });
 
   const {
@@ -475,6 +478,11 @@ export function useBorrowForm(): BorrowViewState {
       return;
     }
 
+    if (action === "depositCollateral" && !evcAddress) {
+      setStatusMessage("EVC address is not configured.");
+      return;
+    }
+
     if (
       (action === "borrowDbusd" || action === "repayDbusd") &&
       !dbusdVaultAddress
@@ -576,6 +584,27 @@ export function useBorrowForm(): BorrowViewState {
           });
 
           await waitForTransactionReceipt(wagmiConfig, { hash: wrapHash });
+        }
+
+        const isCollateralEnabled =
+          collateral.isCollateralEnabled ??
+          (await readContract(wagmiConfig, {
+            abi: EVC_ABI,
+            address: evcAddress as `0x${string}`,
+            functionName: "isCollateralEnabled",
+            args: [address, collateral.vaultAddress],
+          }));
+
+        if (!isCollateralEnabled) {
+          setStatusMessage("Enabling collateral…");
+          const enableHash = await writeContractAsync({
+            abi: EVC_ABI,
+            address: evcAddress as `0x${string}`,
+            functionName: "enableCollateral",
+            args: [address, collateral.vaultAddress],
+          });
+
+          await waitForTransactionReceipt(wagmiConfig, { hash: enableHash });
         }
 
         const approvalNeeded =
@@ -868,6 +897,7 @@ export function useBorrowForm(): BorrowViewState {
       collateral.key === "weth"
         ? needsDepositApproval.weth
         : needsDepositApproval.wbtc;
+    const needsCollateralEnable = collateral.isCollateralEnabled === false;
 
     const depositButtonLabel = (() => {
       if (!isConnected) {
@@ -883,7 +913,19 @@ export function useBorrowForm(): BorrowViewState {
         activeAction?.mode === "depositCollateral" &&
         activeAction.collateral === collateral.key
       ) {
+        if (needsCollateralEnable) {
+          return "Enabling…";
+        }
+
         return depositApprovalNeeded ? "Approving…" : "Depositing…";
+      }
+
+      if (needsCollateralEnable && depositApprovalNeeded) {
+        return "Enable, approve & deposit";
+      }
+
+      if (needsCollateralEnable) {
+        return "Enable & deposit";
       }
 
       if (depositApprovalNeeded) {
